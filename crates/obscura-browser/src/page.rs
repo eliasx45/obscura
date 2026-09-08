@@ -2376,8 +2376,6 @@ impl Page {
         }
 
         let client = self.http_client.clone();
-        #[cfg(feature = "stealth")]
-        let stealth_client = self.stealth_client.clone();
         let page_callbacks = self.callbacks.clone();
         let script_initiator = self
             .url
@@ -2387,8 +2385,6 @@ impl Page {
             .iter()
             .map(|(idx, url)| {
                 let client = client.clone();
-                #[cfg(feature = "stealth")]
-                let stealth_client = stealth_client.clone();
                 let cbs = page_callbacks.clone();
                 let initiator = script_initiator.clone();
                 let url = url.clone();
@@ -2421,24 +2417,10 @@ impl Page {
                         return Some((idx, url, resp));
                     }
                     let request = ResourceRequest::subresource(ResourceType::Script, &initiator);
-                    // Parser-discovered scripts are subresources too: in stealth mode they
-                    // must use the same Chrome-shaped transport as navigation, fetch(), and
-                    // stylesheets instead of silently falling back to reqwest.
-                    #[cfg(feature = "stealth")]
-                    let result = if let Some(stealth_client) = stealth_client {
-                        stealth_client
-                            .fetch_resource_with_callbacks(&parsed, request, Some(&cbs))
-                            .await
-                    } else {
-                        client
-                            .fetch_resource_with_callbacks(&parsed, request, Some(&cbs))
-                            .await
-                    };
-                    #[cfg(not(feature = "stealth"))]
-                    let result = client
+                    match client
                         .fetch_resource_with_callbacks(&parsed, request, Some(&cbs))
-                        .await;
-                    match result {
+                        .await
+                    {
                         Ok(resp) => Some((idx, url, resp)),
                         Err(e) => {
                             tracing::warn!("Failed to fetch script {}: {}", url, e);
