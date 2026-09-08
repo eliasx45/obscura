@@ -53,6 +53,7 @@
     // Pre-declaring them non-enumerable here is enough -- per the note above,
     // the later `globalThis.X = X` assignments only update the value.
     'Node', 'Element', 'Document', 'DocumentFragment', 'DocumentType',
+    'Navigator', 'PluginArray', 'Plugin', 'MimeTypeArray', 'MimeType',
     'Animation', 'KeyframeEffect', 'DocumentTimeline',
     'Text', 'Comment', 'CDATASection', 'ProcessingInstruction', 'CharacterData',
     'CSSStyleDeclaration', 'DOMStringMap', 'DOMTokenList', 'NamedNodeMap', 'Screen', 'NetworkInformation',
@@ -6724,80 +6725,186 @@ for (let i = 0; i < 50; i++) {
   });
 }
 
-// Navigator constructor so that typeof Navigator !== 'undefined' and
-// navigatorPrototype checks don't throw a ReferenceError.
+// Navigator and the plugin/mime-type interfaces are platform objects, not
+// Array subclasses. Keep their indexed entries enumerable and their named
+// entries as legacy unenumerable properties, matching Blink's WebIDL shape.
 function Navigator() {}
 _markNative(Navigator);
 
-// PluginArray must exist before navigator is built so the plugins getter can use it.
-function PluginArray(items) {
-  for (var _pi = 0; _pi < items.length; _pi++) this[_pi] = items[_pi];
-  this.length = items.length;
+function _numericIndex(value) {
+  var n = Number(value);
+  return Number.isFinite(n) && n >= 0 && Math.floor(n) === n ? n : -1;
 }
-PluginArray.prototype = Object.create(Array.prototype);
-PluginArray.prototype.constructor = PluginArray;
-PluginArray.prototype.item = function(i) { return this[i] || null; };
-PluginArray.prototype.namedItem = function(name) {
+
+function _defineIndexed(target, index, value) {
+  Object.defineProperty(target, String(index), {
+    value: value, writable: false, enumerable: true, configurable: true,
+  });
+}
+
+function _defineNamed(target, name, value) {
+  if (!name || Object.prototype.hasOwnProperty.call(target, name)) return;
+  Object.defineProperty(target, name, {
+    value: value, writable: false, enumerable: false, configurable: true,
+  });
+}
+
+function _arrayIterator() {
+  var target = this;
+  var index = 0;
+  return {
+    next: function() {
+      return index < target.length
+        ? {value: target[index++], done: false}
+        : {value: undefined, done: true};
+    },
+    [Symbol.iterator]: function() { return this; },
+  };
+}
+
+function PluginArray(items) {
+  if (!(this instanceof PluginArray)) throw new TypeError("Illegal constructor");
+  var values = items || [];
+  for (var _pi = 0; _pi < values.length; _pi++) _defineIndexed(this, _pi, values[_pi]);
+  Object.defineProperty(this, 'length', {
+    value: values.length, writable: false, enumerable: false, configurable: true,
+  });
+  for (var _pn = 0; _pn < values.length; _pn++) {
+    if (values[_pn]) _defineNamed(this, values[_pn].name, values[_pn]);
+  }
+}
+PluginArray.prototype = Object.create(Object.prototype);
+Object.defineProperty(PluginArray.prototype, 'constructor', {value: PluginArray, writable: true, configurable: true});
+Object.defineProperty(PluginArray.prototype, 'item', {value: function item(i) {
+  var n = _numericIndex(i);
+  return n >= 0 && n < this.length ? this[n] : null;
+}, writable: true, configurable: true});
+Object.defineProperty(PluginArray.prototype, 'namedItem', {value: function namedItem(name) {
+  name = String(name);
   for (var _pi = 0; _pi < this.length; _pi++) {
-    if (this[_pi].name === name) return this[_pi];
+    if (this[_pi] && this[_pi].name === name) return this[_pi];
   }
   return null;
-};
-PluginArray.prototype.refresh = function() {};
-PluginArray.prototype[Symbol.iterator] = Array.prototype[Symbol.iterator];
+}, writable: true, configurable: true});
+Object.defineProperty(PluginArray.prototype, 'refresh', {value: function refresh() {}, writable: true, configurable: true});
+Object.defineProperty(PluginArray.prototype, Symbol.iterator, {value: _arrayIterator, configurable: true});
 Object.defineProperty(PluginArray.prototype, Symbol.toStringTag, {value: 'PluginArray', configurable: true});
 _markNative(PluginArray);
 _markNative(PluginArray.prototype.item);
 _markNative(PluginArray.prototype.namedItem);
 _markNative(PluginArray.prototype.refresh);
+_markNative(PluginArray.prototype[Symbol.iterator]);
 
-// Plugin / MimeType / MimeTypeArray global interfaces. Chrome exposes these as
-// global constructors; their absence threw "ReferenceError: Plugin is not
-// defined" in site bundles that reference them (issue #305). Plain function
-// declarations (no globalThis assignment) so they survive the V8 snapshot, the
-// same pattern PluginArray uses.
-function Plugin(name, filename, description, mimeTypes) {
-  this.name = name;
-  this.filename = filename;
-  this.description = description;
-  var mt = mimeTypes || [];
-  for (var _i = 0; _i < mt.length; _i++) this[_i] = mt[_i];
-  this.length = mt.length;
+var _pluginData = new WeakMap();
+var _mimeTypeData = new WeakMap();
+function _nativeGetter(name, fn) {
+  return _markNativeAs(fn, 'function get ' + name + '() { [native code] }');
 }
-Plugin.prototype.item = function(i) { return this[i] || null; };
-Plugin.prototype.namedItem = function(name) {
-  for (var _i = 0; _i < this.length; _i++) if (this[_i] && this[_i].type === name) return this[_i];
+
+function _setPluginMimeTypes(plugin, mimeTypes) {
+  var values = mimeTypes || [];
+  var data = _pluginData.get(plugin);
+  if (!data) return;
+  data.mimeTypes = values.slice();
+  for (var _mi = 0; _mi < values.length; _mi++) {
+    _defineIndexed(plugin, _mi, values[_mi]);
+    if (values[_mi]) _defineNamed(plugin, values[_mi].type, values[_mi]);
+  }
+  Object.defineProperty(plugin, 'length', {
+    value: values.length, writable: false, enumerable: false, configurable: true,
+  });
+}
+
+function Plugin(name, filename, description, mimeTypes) {
+  if (!(this instanceof Plugin)) throw new TypeError("Illegal constructor");
+  _pluginData.set(this, {
+    name: String(name || ''), filename: String(filename || ''),
+    description: String(description || ''), mimeTypes: [],
+  });
+  Object.defineProperty(this, 'length', {
+    value: 0, writable: false, enumerable: false, configurable: true,
+  });
+  _setPluginMimeTypes(this, mimeTypes);
+}
+Object.defineProperties(Plugin.prototype, {
+  name: {get: _nativeGetter('name', function() { return _pluginData.get(this).name; }), enumerable: true, configurable: true},
+  filename: {get: _nativeGetter('filename', function() { return _pluginData.get(this).filename; }), enumerable: true, configurable: true},
+  description: {get: _nativeGetter('description', function() { return _pluginData.get(this).description; }), enumerable: true, configurable: true},
+  length: {get: _nativeGetter('length', function() { return _pluginData.get(this).mimeTypes.length; }), enumerable: true, configurable: true},
+});
+Object.defineProperty(Plugin.prototype, 'constructor', {value: Plugin, writable: true, configurable: true});
+Object.defineProperty(Plugin.prototype, 'item', {value: function item(i) {
+  var n = _numericIndex(i);
+  return n >= 0 && n < this.length ? this[n] : null;
+}, writable: true, configurable: true});
+Object.defineProperty(Plugin.prototype, 'namedItem', {value: function namedItem(name) {
+  name = String(name);
+  for (var _mi = 0; _mi < this.length; _mi++) {
+    if (this[_mi] && this[_mi].type === name) return this[_mi];
+  }
   return null;
-};
-Plugin.prototype[Symbol.iterator] = Array.prototype[Symbol.iterator];
+}, writable: true, configurable: true});
 Object.defineProperty(Plugin.prototype, Symbol.toStringTag, {value: 'Plugin', configurable: true});
 _markNative(Plugin);
 _markNative(Plugin.prototype.item);
 _markNative(Plugin.prototype.namedItem);
 
 function MimeType(type, description, suffixes, plugin) {
-  this.type = type;
-  this.description = description;
-  this.suffixes = suffixes;
-  this.enabledPlugin = plugin || null;
+  if (!(this instanceof MimeType)) throw new TypeError("Illegal constructor");
+  _mimeTypeData.set(this, {
+    type: String(type || ''), description: String(description || ''),
+    suffixes: String(suffixes || ''), enabledPlugin: plugin || null,
+  });
 }
+Object.defineProperties(MimeType.prototype, {
+  type: {get: _nativeGetter('type', function() { return _mimeTypeData.get(this).type; }), enumerable: true, configurable: true},
+  description: {get: _nativeGetter('description', function() { return _mimeTypeData.get(this).description; }), enumerable: true, configurable: true},
+  suffixes: {get: _nativeGetter('suffixes', function() { return _mimeTypeData.get(this).suffixes; }), enumerable: true, configurable: true},
+  enabledPlugin: {get: _nativeGetter('enabledPlugin', function() { return _mimeTypeData.get(this).enabledPlugin; }), enumerable: true, configurable: true},
+});
+Object.defineProperty(MimeType.prototype, 'constructor', {value: MimeType, writable: true, configurable: true});
 Object.defineProperty(MimeType.prototype, Symbol.toStringTag, {value: 'MimeType', configurable: true});
 _markNative(MimeType);
 
 function MimeTypeArray(items) {
-  for (var _i = 0; _i < items.length; _i++) this[_i] = items[_i];
-  this.length = items.length;
+  if (!(this instanceof MimeTypeArray)) throw new TypeError("Illegal constructor");
+  var values = items || [];
+  for (var _i = 0; _i < values.length; _i++) _defineIndexed(this, _i, values[_i]);
+  Object.defineProperty(this, 'length', {
+    value: values.length, writable: false, enumerable: false, configurable: true,
+  });
+  for (var _n = 0; _n < values.length; _n++) {
+    if (values[_n]) _defineNamed(this, values[_n].type, values[_n]);
+  }
 }
-MimeTypeArray.prototype.item = function(i) { return this[i] || null; };
-MimeTypeArray.prototype.namedItem = function(name) {
-  for (var _i = 0; _i < this.length; _i++) if (this[_i] && this[_i].type === name) return this[_i];
+MimeTypeArray.prototype = Object.create(Object.prototype);
+Object.defineProperty(MimeTypeArray.prototype, 'constructor', {value: MimeTypeArray, writable: true, configurable: true});
+Object.defineProperty(MimeTypeArray.prototype, 'item', {value: function item(i) {
+  var n = _numericIndex(i);
+  return n >= 0 && n < this.length ? this[n] : null;
+}, writable: true, configurable: true});
+Object.defineProperty(MimeTypeArray.prototype, 'namedItem', {value: function namedItem(name) {
+  name = String(name);
+  for (var _i = 0; _i < this.length; _i++) {
+    if (this[_i] && this[_i].type === name) return this[_i];
+  }
   return null;
-};
-MimeTypeArray.prototype[Symbol.iterator] = Array.prototype[Symbol.iterator];
+}, writable: true, configurable: true});
+Object.defineProperty(MimeTypeArray.prototype, Symbol.iterator, {value: _arrayIterator, configurable: true});
 Object.defineProperty(MimeTypeArray.prototype, Symbol.toStringTag, {value: 'MimeTypeArray', configurable: true});
 _markNative(MimeTypeArray);
 _markNative(MimeTypeArray.prototype.item);
 _markNative(MimeTypeArray.prototype.namedItem);
+_markNative(MimeTypeArray.prototype[Symbol.iterator]);
+
+// The bootstrap is wrapped in a closure, so function declarations above are
+// not automatically visible as Window properties. Blink exposes these
+// constructors globally and detector/site code legitimately uses instanceof.
+globalThis.Navigator = Navigator;
+globalThis.PluginArray = PluginArray;
+globalThis.Plugin = Plugin;
+globalThis.MimeTypeArray = MimeTypeArray;
+globalThis.MimeType = MimeType;
 
 class NetworkInformation {
   constructor() { this._listeners = Object.create(null); }
@@ -6988,18 +7095,27 @@ globalThis.navigator = {
   defGetter('language', function() { return "en-US"; });
   defGetter('languages', function() { return ["en-US", "en"]; });
 
-  // Cache plugins/mimeTypes so navigator.plugins === navigator.plugins.
-  var _plugins = new PluginArray([
-    new Plugin("PDF Viewer", "internal-pdf-viewer", "Portable Document Format", []),
-    new Plugin("Chrome PDF Viewer", "internal-pdf-viewer", "Portable Document Format", []),
-    new Plugin("Chromium PDF Viewer", "internal-pdf-viewer", "Portable Document Format", []),
-    new Plugin("Microsoft Edge PDF Viewer", "internal-pdf-viewer", "Portable Document Format", []),
-    new Plugin("WebKit built-in PDF", "internal-pdf-viewer", "Portable Document Format", []),
-  ]);
-  var _mimeTypes = new MimeTypeArray([
-    new MimeType("application/pdf", "Portable Document Format", "pdf", null),
-    new MimeType("text/pdf", "Portable Document Format", "pdf", null),
-  ]);
+  // Cache plugins/mimeTypes so navigator.plugins === navigator.plugins and
+  // navigator.mimeTypes === navigator.mimeTypes, as in a browser document.
+  // Each built-in PDF plugin owns the two standard MIME types. The document's
+  // MIME-type array is the canonical PDF Viewer's pair, whose enabledPlugin
+  // links back to a real Plugin object instead of null.
+  var _pluginNames = [
+    "PDF Viewer", "Chrome PDF Viewer", "Chromium PDF Viewer",
+    "Microsoft Edge PDF Viewer", "WebKit built-in PDF",
+  ];
+  var _pdfEntries = [];
+  for (var _p = 0; _p < _pluginNames.length; _p++) {
+    var _pdfPlugin = new Plugin(_pluginNames[_p], "internal-pdf-viewer", "Portable Document Format", []);
+    var _pdfMimes = [
+      new MimeType("application/pdf", "Portable Document Format", "pdf", _pdfPlugin),
+      new MimeType("text/pdf", "Portable Document Format", "pdf", _pdfPlugin),
+    ];
+    _setPluginMimeTypes(_pdfPlugin, _pdfMimes);
+    _pdfEntries.push({plugin: _pdfPlugin, mimeTypes: _pdfMimes});
+  }
+  var _plugins = new PluginArray(_pdfEntries.map(function(entry) { return entry.plugin; }));
+  var _mimeTypes = new MimeTypeArray(_pdfEntries[0].mimeTypes);
   defGetter('plugins', function() { return _plugins; });
   defGetter('mimeTypes', function() { return _mimeTypes; });
 

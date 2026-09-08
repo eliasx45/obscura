@@ -15544,6 +15544,77 @@ mod tests {
         assert_eq!(chrome, serde_json::json!("object"));
     }
 
+    #[test]
+    fn navigator_plugin_interfaces_match_platform_object_shape() {
+        let mut rt = setup_runtime("<html><body></body></html>");
+        let result = rt
+            .evaluate(
+                r#"
+                (function() {
+                    const plugin = navigator.plugins[0];
+                    const mime = navigator.mimeTypes[0];
+                    return {
+                        constructors: [
+                            typeof Navigator,
+                            typeof PluginArray,
+                            typeof Plugin,
+                            typeof MimeTypeArray,
+                            typeof MimeType,
+                        ],
+                        instances: [
+                            navigator instanceof Navigator,
+                            navigator.plugins instanceof PluginArray,
+                            navigator.mimeTypes instanceof MimeTypeArray,
+                            plugin instanceof Plugin,
+                            plugin[0] instanceof MimeType,
+                            Array.isArray(navigator.plugins),
+                            Array.isArray(navigator.mimeTypes),
+                        ],
+                        pluginNames: [...navigator.plugins].map((p) => p.name),
+                        mimeTypes: [...navigator.mimeTypes].map((m) => m.type),
+                        linked: mime.enabledPlugin === plugin && plugin[0].type === mime.type,
+                        lengths: [navigator.plugins.length, plugin.length, navigator.mimeTypes.length],
+                        brands: [
+                            Object.prototype.toString.call(navigator.plugins),
+                            Object.prototype.toString.call(plugin),
+                            Object.prototype.toString.call(navigator.mimeTypes),
+                            Object.prototype.toString.call(mime),
+                        ],
+                        named: navigator.plugins['PDF Viewer'] === plugin &&
+                            navigator.mimeTypes['application/pdf'] === mime &&
+                            plugin['application/pdf'] === plugin[0],
+                        descriptors: [
+                            Object.getOwnPropertyDescriptor(navigator.plugins, 'length').enumerable,
+                            Object.getOwnPropertyDescriptor(navigator.plugins, 'PDF Viewer').enumerable,
+                            Object.getOwnPropertyDescriptor(navigator.mimeTypes, 'application/pdf').enumerable,
+                        ],
+                    };
+                })()
+                "#,
+            )
+            .unwrap();
+        assert_eq!(
+            result,
+            serde_json::json!({
+                "constructors": ["function", "function", "function", "function", "function"],
+                "instances": [true, true, true, true, true, false, false],
+                "pluginNames": [
+                    "PDF Viewer", "Chrome PDF Viewer", "Chromium PDF Viewer",
+                    "Microsoft Edge PDF Viewer", "WebKit built-in PDF"
+                ],
+                "mimeTypes": ["application/pdf", "text/pdf"],
+                "linked": true,
+                "lengths": [5, 2, 2],
+                "brands": [
+                    "[object PluginArray]", "[object Plugin]",
+                    "[object MimeTypeArray]", "[object MimeType]"
+                ],
+                "named": true,
+                "descriptors": [false, false, false],
+            })
+        );
+    }
+
     #[tokio::test(flavor = "current_thread")]
     async fn test_call_function_on_no_args() {
         let mut rt = setup_runtime("<html><head><title>Test</title></head><body></body></html>");
