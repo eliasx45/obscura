@@ -19331,6 +19331,27 @@ mod tests {
     }
 
     #[test]
+    fn console_log_error_does_not_trigger_custom_stack_getter() {
+        let mut rt = setup_runtime("<div></div>");
+        let result = rt
+            .evaluate(
+                r#"
+            let called = false;
+            const e = new Error("test");
+            Object.defineProperty(e, "stack", {
+                configurable: false,
+                enumerable: false,
+                get() { called = true; return ""; },
+            });
+            console.debug(e);
+            return called;
+        "#,
+            )
+            .unwrap();
+        assert_eq!(result, serde_json::json!(false));
+    }
+
+    #[test]
     fn element_aria_reflection_setters_write_through() {
         let mut rt = setup_runtime(r#"<div id="d"></div>"#);
         let result = rt

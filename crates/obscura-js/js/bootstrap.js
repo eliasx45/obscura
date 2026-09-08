@@ -742,6 +742,23 @@ function _getElementsByClassName(root, classNames) {
   return HTMLCollection._from(matched);
 }
 let _consoleOid = 0;
+// Browser consoles keep Error objects lazy. Logging an Error must not invoke
+// a custom `stack` accessor: bot detectors use that accessor to tell whether
+// developer tooling is attached. Ordinary V8 Errors expose a data property,
+// so retain their stack text while leaving accessor-backed stacks untouched.
+const _consoleErrorText = (value) => {
+  let cursor = value;
+  while (cursor) {
+    const desc = Object.getOwnPropertyDescriptor(cursor, 'stack');
+    if (desc && typeof desc.get === 'function') return value.message || String(value);
+    cursor = Object.getPrototypeOf(cursor);
+  }
+  const _pst = Error.prepareStackTrace;
+  if (_pst !== undefined) Error.prepareStackTrace = undefined;
+  const text = value.stack || value.message || String(value);
+  if (_pst !== undefined) Error.prepareStackTrace = _pst;
+  return text;
+};
 const _consoleObjectId = (value) => {
   const objectId = "console-" + (globalThis.__obscura_frameId >>> 0) + "-" + (++_consoleOid);
   const store = globalThis.__obscura_objects || (globalThis.__obscura_objects = {});
@@ -766,10 +783,7 @@ const _consoleRemoteObject = (value) => {
   }
   if (type === "symbol") return { type, description: String(value) };
   if (value instanceof Error) {
-    const _pst = Error.prepareStackTrace;
-    if (_pst !== undefined) Error.prepareStackTrace = undefined;
-    const description = value.stack || value.message || String(value);
-    if (_pst !== undefined) Error.prepareStackTrace = _pst;
+    const description = _consoleErrorText(value);
     return {
       type: "object", subtype: "error",
       className: (value.constructor && value.constructor.name) || "Error",
@@ -796,11 +810,7 @@ const _consoleFn = (level, args) => {
       if (a === null) return "null";
       if (a === undefined) return "undefined";
       if (a instanceof Error) {
-        const _pst = Error.prepareStackTrace;
-        if (_pst !== undefined) Error.prepareStackTrace = undefined;
-        const _s = a.stack || a.message || String(a);
-        if (_pst !== undefined) Error.prepareStackTrace = _pst;
-        return _s;
+        return _consoleErrorText(a);
       }
       if (typeof a === "object") {
         try {
