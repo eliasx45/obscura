@@ -1380,6 +1380,15 @@ impl ObscuraJsRuntime {
         );
     }
 
+    /// Optionally pin the page fingerprint seed for a durable browser profile.
+    /// When unset, page initialization retains its existing time/random seed.
+    pub fn set_fingerprint_seed(&mut self, seed: u32) {
+        let _ = self.execute_runtime_script(
+            "<set-fingerprint-seed>",
+            format!("globalThis.__obscura_fp_seed = {seed};"),
+        );
+    }
+
     /// Set the CSS viewport exposed to page JavaScript. This must run before
     /// `run_page_init` for navigation-time responsive code; it may also be
     /// called later by CDP emulation to update the live window surfaces.

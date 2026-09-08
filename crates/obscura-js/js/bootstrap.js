@@ -24,7 +24,7 @@
     '__markParserScripts', '__obscura_hasPendingDynamicScripts',
     '__obscura_hasPendingLoadDelayingScripts',
     '__obscura_nextPendingTimeoutDelay',
-    '__obscura_hw', '__obscura_mem', '__obscura_viewport_w', '__obscura_viewport_h',
+    '__obscura_hw', '__obscura_mem', '__obscura_fp_seed', '__obscura_viewport_w', '__obscura_viewport_h',
     '__obscura_screen_w', '__obscura_screen_h', '__obscura_screen_emulated',
     '__documentReadyState__', '__currentUrl',
     // internal helpers (var-declared throughout the file)
@@ -15234,7 +15234,10 @@ globalThis.__obscura_init = function() {
   _realmFrameId = globalThis.__obscura_frameId >>> 0;
   _browserPostedTaskWakePending = false;
   for (const queue of _browserPostedTaskQueues) _browserPostedTaskDiscardQueue(queue);
-  _fpSeed = Date.now() ^ (Math.random() * 0xFFFFFFFF >>> 0);
+  const hostFpSeed = Number(globalThis.__obscura_fp_seed);
+  _fpSeed = Number.isFinite(hostFpSeed)
+    ? (hostFpSeed | 0)
+    : Date.now() ^ (Math.random() * 0xFFFFFFFF >>> 0);
   _fpCache = null;
   // A real navigation just completed (this runs after set_url), so drop any
   // URL a location setter previewed synchronously and let document_url drive

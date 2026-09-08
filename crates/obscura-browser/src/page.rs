@@ -29,6 +29,14 @@ fn env_geolocation() -> Option<(f64, f64)> {
     valid.then_some((lat, lon))
 }
 
+/// Parse an optional profile-scoped fingerprint seed. When unset, Obscura
+/// keeps its existing per-document randomization behavior.
+fn env_fingerprint_seed() -> Option<u32> {
+    std::env::var("OBSCURA_FINGERPRINT_SEED")
+        .ok()
+        .and_then(|raw| raw.trim().parse::<u32>().ok())
+}
+
 fn decode_data_uri(uri: &str) -> Option<Vec<u8>> {
     let rest = uri.strip_prefix("data:")?;
     let comma = rest.find(',')?;
@@ -1839,6 +1847,9 @@ impl Page {
             rt.set_geolocation(lat, lon);
         }
         rt.set_viewport(self.viewport.0 as f64, self.viewport.1 as f64);
+        if let Some(seed) = env_fingerprint_seed() {
+            rt.set_fingerprint_seed(seed);
+        }
         rt.set_screen_size_override(
             self.screen_size_override
                 .map(|(width, height)| (width as f64, height as f64)),
