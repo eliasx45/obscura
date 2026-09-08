@@ -24,7 +24,8 @@
     '__markParserScripts', '__obscura_hasPendingDynamicScripts',
     '__obscura_hasPendingLoadDelayingScripts',
     '__obscura_nextPendingTimeoutDelay',
-    '__obscura_hw', '__obscura_mem',
+    '__obscura_hw', '__obscura_mem', '__obscura_viewport_w', '__obscura_viewport_h',
+    '__obscura_screen_w', '__obscura_screen_h', '__obscura_screen_emulated',
     '__documentReadyState__', '__currentUrl',
     // internal helpers (var-declared throughout the file)
     '__processDynScriptQueue', '_decodeDataScriptUrl', '_markNative', '_fpRand', '_fpNoise',
