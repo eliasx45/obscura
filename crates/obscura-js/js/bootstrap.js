@@ -13056,7 +13056,7 @@ globalThis.__ariaQuerySelector = function(root, selector) { return null; };
 globalThis.__ariaQuerySelectorAll = async function*(root, selector) { /* yields nothing */ };
 const _MAX_CANVAS_DIMENSION = 32767;
 const _MAX_CANVAS_PIXELS = 67108864;
-class _Canvas2D {
+class CanvasRenderingContext2D {
   constructor(canvas) {
     this.canvas = canvas;
     this._damageQueued = false;
@@ -13305,6 +13305,10 @@ class _Canvas2D {
   createConicGradient() { return { addColorStop(){} }; }
   getContextAttributes() { return { alpha: true, desynchronized: false, colorSpace: "srgb", willReadFrequently: false }; }
 }
+Object.defineProperty(CanvasRenderingContext2D.prototype, Symbol.toStringTag, {
+  value: 'CanvasRenderingContext2D', configurable: true,
+});
+globalThis.CanvasRenderingContext2D = CanvasRenderingContext2D;
 
 class HTMLCanvasElement extends Element {
   get width() {
@@ -13339,7 +13343,7 @@ globalThis.HTMLCanvasElement = HTMLCanvasElement;
 HTMLCanvasElement.prototype.getContext = function getContext(type) {
   if (type === '2d') {
     if (!this._ctx) {
-      try { this._ctx = new _Canvas2D(this); }
+      try { this._ctx = new CanvasRenderingContext2D(this); }
       catch (_error) { return null; }
     }
     return this._ctx;
@@ -14891,10 +14895,6 @@ if (typeof ImageData === 'undefined') {
       else { this.width = w; this.height = h; this.data = new Uint8ClampedArray(w * h * 4); }
     }
   };
-}
-
-if (typeof CanvasRenderingContext2D === 'undefined') {
-  globalThis.CanvasRenderingContext2D = class CanvasRenderingContext2D {};
 }
 
 if (typeof OffscreenCanvas === 'undefined') {

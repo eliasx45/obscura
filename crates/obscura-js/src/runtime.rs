@@ -13469,6 +13469,38 @@ mod tests {
     }
 
     #[test]
+    fn canvas_2d_context_exposes_its_standard_brand() {
+        let mut rt = setup_runtime("<html><body><canvas></canvas></body></html>");
+        let result = rt
+            .evaluate(
+                r#"
+                (() => {
+                    const canvas = document.querySelector('canvas');
+                    const context = canvas.getContext('2d');
+                    return [
+                        context instanceof CanvasRenderingContext2D,
+                        Object.getPrototypeOf(context) === CanvasRenderingContext2D.prototype,
+                        Object.prototype.toString.call(context),
+                        context.constructor === CanvasRenderingContext2D,
+                        typeof CanvasRenderingContext2D.prototype.fillRect,
+                    ];
+                })()
+                "#,
+            )
+            .unwrap();
+        assert_eq!(
+            result,
+            serde_json::json!([
+                true,
+                true,
+                "[object CanvasRenderingContext2D]",
+                true,
+                "function",
+            ])
+        );
+    }
+
+    #[test]
     fn dom_elements_expose_html_to_string_brands() {
         let mut rt = setup_runtime(
             "<html><body><a id='link'></a><canvas></canvas><svg></svg></body></html>",
