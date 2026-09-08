@@ -13385,8 +13385,16 @@ globalThis.RTCPeerConnection = class RTCPeerConnection {
   constructor(){this.localDescription=null;this.remoteDescription=null;this.iceConnectionState='new';this.iceGatheringState='new';this.signalingState='stable';this.connectionState='new';}
   createOffer(){return Promise.resolve({type:'offer',sdp:''});}
   createAnswer(){return Promise.resolve({type:'answer',sdp:''});}
-  setLocalDescription(){return Promise.resolve();}
-  setRemoteDescription(){return Promise.resolve();}
+  setLocalDescription(description){
+    this.localDescription = description || {type:'offer',sdp:''};
+    this.signalingState = this.localDescription.type === 'answer' ? 'stable' : 'have-local-offer';
+    return Promise.resolve();
+  }
+  setRemoteDescription(description){
+    this.remoteDescription = description || {type:'answer',sdp:''};
+    this.signalingState = 'stable';
+    return Promise.resolve();
+  }
   addIceCandidate(){return Promise.resolve();}
   close(){}
   createDataChannel(){return {close(){},send(){},addEventListener(){},removeEventListener(){}};}
