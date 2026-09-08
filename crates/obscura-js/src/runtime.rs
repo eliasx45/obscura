@@ -13468,6 +13468,34 @@ mod tests {
         );
     }
 
+    #[test]
+    fn dom_elements_expose_html_to_string_brands() {
+        let mut rt = setup_runtime(
+            "<html><body><a id='link'></a><canvas></canvas><svg></svg></body></html>",
+        );
+        let result = rt
+            .evaluate(
+                r#"
+                (() => [
+                    Object.prototype.toString.call(document.getElementById('link')),
+                    Object.prototype.toString.call(document.querySelector('canvas')),
+                    Object.prototype.toString.call(document.querySelector('svg')),
+                    Object.prototype.toString.call(document.createElement('div')),
+                ])()
+                "#,
+            )
+            .unwrap();
+        assert_eq!(
+            result,
+            serde_json::json!([
+                "[object HTMLAnchorElement]",
+                "[object HTMLCanvasElement]",
+                "[object SVGSVGElement]",
+                "[object HTMLDivElement]",
+            ])
+        );
+    }
+
     #[cfg(feature = "render")]
     #[test]
     fn canvas_2d_live_backing_paints_immediately_with_scaling_clips_and_effects() {

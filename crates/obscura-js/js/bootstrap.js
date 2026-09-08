@@ -3269,6 +3269,41 @@ class Element extends Node {
   // Element for element nodes, and node ids are never freed-and-reused), so this
   // is constant. Overrides Node's dynamic getter to drop one op per nodeType read.
   get nodeType() { return 1; }
+  // Object.prototype.toString uses this brand for DOM type checks. Libraries
+  // such as Tippy use it to distinguish one Element from a selector result;
+  // without it Obscura elements look like plain objects and receive an array
+  // of instances instead of one instance.
+  get [Symbol.toStringTag]() {
+    switch (this.localName) {
+      case 'a': return 'HTMLAnchorElement';
+      case 'audio': return 'HTMLAudioElement';
+      case 'button': return 'HTMLButtonElement';
+      case 'canvas': return 'HTMLCanvasElement';
+      case 'div': return 'HTMLDivElement';
+      case 'form': return 'HTMLFormElement';
+      case 'iframe': return 'HTMLIFrameElement';
+      case 'img': return 'HTMLImageElement';
+      case 'input': return 'HTMLInputElement';
+      case 'label': return 'HTMLLabelElement';
+      case 'li': return 'HTMLLIElement';
+      case 'object': return 'HTMLObjectElement';
+      case 'option': return 'HTMLOptionElement';
+      case 'p': return 'HTMLParagraphElement';
+      case 'select': return 'HTMLSelectElement';
+      case 'script': return 'HTMLScriptElement';
+      case 'slot': return 'HTMLSlotElement';
+      case 'span': return 'HTMLSpanElement';
+      case 'style': return 'HTMLStyleElement';
+      case 'svg': return 'SVGSVGElement';
+      case 'template': return 'HTMLTemplateElement';
+      case 'textarea': return 'HTMLTextAreaElement';
+      case 'video': return 'HTMLVideoElement';
+      default:
+        return this.namespaceURI === 'http://www.w3.org/2000/svg'
+          ? 'SVGElement'
+          : 'HTMLElement';
+    }
+  }
   get tagName() {
     // An element's qualified name is immutable for its lifetime. React reads
     // nodeName/tagName repeatedly while hydrating; crossing the native bridge
