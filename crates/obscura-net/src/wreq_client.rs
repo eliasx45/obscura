@@ -59,18 +59,18 @@ impl wreq::dns::Resolve for SsrfGuardResolver {
 
 #[cfg(feature = "stealth")]
 pub const STEALTH_USER_AGENT: &str =
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36";
+    crate::BROWSER_USER_AGENT;
 
 // The wreq emulation (Profile::Chrome149, Platform::Windows) sends this exact
 // UA and sec-ch-ua-platform "Windows" on the wire. navigator has to report the
 // same identity, otherwise the TLS/HTTP layer and the JS layer disagree and a
 // site cross-checks the mismatch as a bot signal.
 #[cfg(feature = "stealth")]
-pub const STEALTH_NAVIGATOR_PLATFORM: &str = "Win32";
+pub const STEALTH_NAVIGATOR_PLATFORM: &str = crate::BROWSER_NAVIGATOR_PLATFORM;
 #[cfg(feature = "stealth")]
-pub const STEALTH_UA_PLATFORM: &str = "Windows";
+pub const STEALTH_UA_PLATFORM: &str = crate::BROWSER_UA_PLATFORM;
 #[cfg(feature = "stealth")]
-pub const STEALTH_UA_PLATFORM_VERSION: &str = "15.0.0";
+pub const STEALTH_UA_PLATFORM_VERSION: &str = crate::BROWSER_UA_PLATFORM_VERSION;
 
 #[cfg(feature = "stealth")]
 fn wreq_response_header_value<'a>(

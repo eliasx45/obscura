@@ -5,56 +5,12 @@ pub struct BrowserProfile {
     pub ua_platform_version: &'static str,
 }
 
-pub static PROFILES: &[BrowserProfile] = &[
-    BrowserProfile {
-        user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
-        platform: "Win32",
-        ua_platform: "Windows",
-        ua_platform_version: "10.0.0",
-    },
-    BrowserProfile {
-        user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36",
-        platform: "Win32",
-        ua_platform: "Windows",
-        ua_platform_version: "10.0.0",
-    },
-    BrowserProfile {
-        user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",
-        platform: "Win32",
-        ua_platform: "Windows",
-        ua_platform_version: "15.0.0",
-    },
-    BrowserProfile {
-        user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
-        platform: "Win32",
-        ua_platform: "Windows",
-        ua_platform_version: "15.0.0",
-    },
-    BrowserProfile {
-        user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
-        platform: "MacIntel",
-        ua_platform: "macOS",
-        ua_platform_version: "13.6.7",
-    },
-    BrowserProfile {
-        user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36",
-        platform: "MacIntel",
-        ua_platform: "macOS",
-        ua_platform_version: "14.4.1",
-    },
-    BrowserProfile {
-        user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",
-        platform: "MacIntel",
-        ua_platform: "macOS",
-        ua_platform_version: "14.5.0",
-    },
-    BrowserProfile {
-        user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
-        platform: "MacIntel",
-        ua_platform: "macOS",
-        ua_platform_version: "14.6.0",
-    },
-];
+pub static PROFILES: &[BrowserProfile] = &[BrowserProfile {
+    user_agent: obscura_net::BROWSER_USER_AGENT,
+    platform: obscura_net::BROWSER_NAVIGATOR_PLATFORM,
+    ua_platform: obscura_net::BROWSER_UA_PLATFORM,
+    ua_platform_version: obscura_net::BROWSER_UA_PLATFORM_VERSION,
+}];
 
 pub fn random_profile() -> &'static BrowserProfile {
     let idx = (std::time::SystemTime::now()
@@ -65,39 +21,26 @@ pub fn random_profile() -> &'static BrowserProfile {
     &PROFILES[idx]
 }
 
-/// Pick the profile for a new browser context.
+/// Pick the only supported profile for a new browser context.
 ///
-/// The default is a single stable profile. Cycling through different browser
-/// identities from one address is itself a bot signal (a real address maps to a
-/// stable device), and the rotated profile does not yet carry a matching TLS or
-/// timezone fingerprint, so rotation is opt-in:
-///   OBSCURA_PROFILE=<index>   pin a specific profile from PROFILES
-///   OBSCURA_ROTATE_PROFILE=1  pick a random profile per context
+/// The old profile and rotation environment variables remain harmlessly
+/// ignored for compatibility. Selectable identities can return only when all
+/// exposed identity surfaces use the same selected profile.
 pub fn select_profile() -> &'static BrowserProfile {
-    if let Some(idx) = std::env::var("OBSCURA_PROFILE")
-        .ok()
-        .as_deref()
-        .map(str::trim)
-        .and_then(|s| s.parse::<usize>().ok())
-    {
-        if idx < PROFILES.len() {
-            return &PROFILES[idx];
-        }
-    }
-    if env_enabled("OBSCURA_ROTATE_PROFILE") {
-        return random_profile();
-    }
     &PROFILES[0]
 }
 
-fn env_enabled(key: &str) -> bool {
-    matches!(
-        std::env::var(key)
-            .ok()
-            .as_deref()
-            .map(str::trim)
-            .map(str::to_ascii_lowercase)
-            .as_deref(),
-        Some("1") | Some("true") | Some("yes") | Some("on")
-    )
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn supported_profile_is_windows_chrome149() {
+        assert_eq!(PROFILES.len(), 1);
+        let profile = select_profile();
+        assert_eq!(profile.user_agent, obscura_net::BROWSER_USER_AGENT);
+        assert_eq!(profile.platform, "Win32");
+        assert_eq!(profile.ua_platform, "Windows");
+        assert_eq!(profile.ua_platform_version, "15.0.0");
+    }
 }

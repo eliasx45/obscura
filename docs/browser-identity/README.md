@@ -29,19 +29,19 @@ CDP, and child realms wherever those surfaces are exposed.
 
 ## Current confirmed state
 
-- The current branch is `elias/chrome149-profile` at `f338146`.
+- The current branch is `elias/chrome149-profile` at `a2525b7`.
 - The renderer uses embedded Liberation, DejaVu, and Noto font assets and does
   not scan host system fonts. Common font metrics are therefore shared by
   instances using the same build. Page-provided web fonts remain page inputs.
 - `BrowserContext` owns a cookie jar, storage directory, proxy setting, and HTTP
   client. These are the primary state-isolation boundaries to test.
-- The profile table currently contains four Windows and four macOS presets. It
-  contains no Linux profile.
-- The stealth transport and stealth page JavaScript currently use one fixed
-  identity: Chrome 149 on Windows. Selected macOS profiles are not propagated
-  through that path.
-- CDP `Browser.getVersion` still contains a Linux-looking user-agent string.
-  CDP clients can see this; ordinary page JavaScript cannot.
+- The active profile table now contains one preset: Chrome 149 on Windows.
+  Legacy profile and rotation environment variables are ignored until
+  selectable identities can be wired end to end.
+- The stealth transport, ordinary HTTP defaults, page JavaScript, and CDP
+  metadata now use the same Windows Chrome 149 constants. Explicit low-level
+  custom UA calls remain available for compatibility tests and are outside
+  this supported identity contract.
 - Locale is pinned to `en-US`. Timezone is process-wide and is controlled by
   `OBSCURA_TIMEZONE`, `TZ`, or the current Europe/Berlin fallback. It is not a
   per-context profile field.
@@ -89,8 +89,9 @@ HTTP defaults, and CDP metadata. The first implementation should be small:
 1. Make Windows Chrome 149 the active default identity.
 2. Remove or disable macOS profile activation while the product contract is
    Windows-only.
-3. Make stealth reject incompatible custom UA or profile settings instead of
-   silently ignoring them.
+3. Decide whether incompatible custom UA settings should be rejected at the
+   CLI boundary; the current compatibility API still permits explicit UA
+   overrides and documents that they can leave the supported identity.
 4. Add an end-to-end identity test that compares context, page, iframe, worker,
    HTTP, and CDP values.
 

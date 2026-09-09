@@ -6,7 +6,7 @@ pub async fn handle(method: &str, _params: &Value) -> Result<Value, String> {
             "protocolVersion": "1.3",
             "product": "Chrome/149.0.0.0",
             "revision": "@0000000000000000000000000000000000000000",
-            "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",
+            "userAgent": obscura_net::BROWSER_USER_AGENT,
             "jsVersion": "14.5.0.0",
         })),
         "close" => {
@@ -38,5 +38,17 @@ pub async fn handle(method: &str, _params: &Value) -> Result<Value, String> {
         // whole context initialization.
         "grantPermissions" | "resetPermissions" => Ok(json!({})),
         _ => Err(format!("Unknown Browser method: {}", method)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn get_version_uses_supported_windows_identity() {
+        let version = handle("getVersion", &Value::Null).await.unwrap();
+        assert_eq!(version["product"], "Chrome/149.0.0.0");
+        assert_eq!(version["userAgent"], obscura_net::BROWSER_USER_AGENT);
     }
 }

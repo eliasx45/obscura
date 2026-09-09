@@ -233,9 +233,12 @@ mod tests {
             false,
             None,
         );
-        assert!(ctx.user_agent.contains("Chrome"));
+        assert_eq!(ctx.user_agent, obscura_net::BROWSER_USER_AGENT);
+        assert_eq!(ctx.platform, obscura_net::BROWSER_NAVIGATOR_PLATFORM);
+        assert_eq!(ctx.ua_platform, obscura_net::BROWSER_UA_PLATFORM);
+        assert_eq!(ctx.ua_platform_version, obscura_net::BROWSER_UA_PLATFORM_VERSION);
         let client_ua = ctx.http_client.user_agent.read().await.clone();
-        assert!(client_ua.contains("Chrome"));
+        assert_eq!(client_ua, obscura_net::BROWSER_USER_AGENT);
         assert_eq!(ctx.user_agent, client_ua);
     }
 

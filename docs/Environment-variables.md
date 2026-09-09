@@ -98,19 +98,13 @@ OBSCURA_GEOLOCATION="40.7128,-74.0060" obscura serve
 
 ### `OBSCURA_PROFILE`
 
-Pin a specific browser profile from the built-in pool by index (`0`-based). Each profile keeps `navigator.platform`, `userAgentData`, the UA string, and the GPU renderer internally consistent. Without it a single stable profile is used.
-
-```bash
-OBSCURA_PROFILE=2 obscura serve
-```
+Reserved for future selectable identities. The current build supports one
+identity only, Chrome 149 on Windows, so this variable is ignored.
 
 ### `OBSCURA_ROTATE_PROFILE`
 
-Opt into picking a random profile per browser context instead of the stable default. Leave it off when you pin a TLS fingerprint, proxy region, or timezone, since a rotated profile would no longer match those.
-
-```bash
-OBSCURA_ROTATE_PROFILE=1 obscura serve
-```
+Reserved for future selectable identities. The current build does not rotate
+profiles and always uses Chrome 149 on Windows.
 
 ## MCP
 

@@ -65,18 +65,25 @@ obscura fetch https://example.com --user-agent "Mozilla/5.0 (...) ..."
 obscura serve --user-agent "Mozilla/5.0 (...) ..."
 ```
 
-Default UA matches a recent Chrome on the build platform.
+The supported default is Chrome 149 on Windows, regardless of the host OS.
+`--user-agent` is a low-level override for compatibility tests. It can make
+the reported UA disagree with the supported Windows identity, so it is not
+part of the normal identity contract. In stealth mode the transport and page
+identity continue to use the supported Windows values.
 
 ## Browser profile, timezone, and geolocation
 
-The engine presents one of a built-in pool of realistic browser profiles (a mix of Windows and macOS, recent Chrome versions). Each profile keeps `navigator.platform`, `navigator.userAgentData` (platform and platform version), and the UA string internally consistent, so the surfaces a site fingerprints agree with each other. There is no GPU renderer among them: `canvas.getContext('webgl')` returns `null`, so a page cannot read a renderer string at all.
+The current supported identity is one stable profile: Chrome 149 on Windows.
+It keeps `navigator.platform`, `navigator.userAgentData`, HTTP defaults, and
+CDP browser metadata aligned. macOS and Linux profiles are not supported yet.
+The engine has no GPU renderer: `canvas.getContext('webgl')` returns `null`.
 
-A single stable profile is used by default. One IP cycling through different identities is itself a signal, so rotation is opt-in:
+The legacy profile selectors remain accepted but are ignored while the
+identity surface is being unified:
 
-```bash
-OBSCURA_PROFILE=2 obscura serve          # pin a specific profile by index
-OBSCURA_ROTATE_PROFILE=1 obscura serve   # random profile per browser context
-```
+`OBSCURA_PROFILE` and `OBSCURA_ROTATE_PROFILE` are reserved for a future
+version in which every identity surface, including transport and CDP, is
+selected from the same profile.
 
 Timezone is driven by the process zone so `Date` (`getTimezoneOffset`, `toString`) and `Intl.DateTimeFormat` report the same region. Default is `Europe/Berlin`; set it to match the exit IP:
 
@@ -90,13 +97,13 @@ OBSCURA_TIMEZONE=America/New_York obscura serve
 OBSCURA_GEOLOCATION="40.7128,-74.0060" obscura serve
 ```
 
-Keep these aligned. A rotated or mismatched profile carries no matching TLS or timezone fingerprint, so when you pin a proxy region or TLS fingerprint, leave rotation off and set the timezone and geolocation to the same region. See [Environment variables](Environment-variables.md) for the full list.
+Keep timezone and geolocation aligned with the intended network region. See
+[Environment variables](Environment-variables.md) for the full list.
 
 ## Combine
 
 ```bash
 obscura serve \
   --stealth \
-  --proxy http://user:pass@proxy.example.com:8080 \
-  --user-agent "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 ..."
+  --proxy http://user:pass@proxy.example.com:8080
 ```
