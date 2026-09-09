@@ -24,6 +24,11 @@
 * [Run in production at scale](Run-in-production-at-scale.md)
 * [Browser identity and instance isolation](browser-identity/README.md)
 
+## Architecture decisions
+
+* [Coherent Chrome 149 identity](adr/0001-chrome149-stealth-profile.md)
+* [Context isolation and scaling](adr/0002-context-isolation-and-scaling.md)
+
 ## Reference
 
 * [CLI reference](CLI-reference.md)

@@ -69,7 +69,11 @@ The supported default is Chrome 149 on Windows, regardless of the host OS.
 `--user-agent` is a low-level override for compatibility tests. It can make
 the reported UA disagree with the supported Windows identity, so it is not
 part of the normal identity contract. In stealth mode the transport and page
-identity continue to use the supported Windows values.
+identity continue to use the supported Windows values. The Rust
+`Browser::builder().user_agent(...)` option and CDP
+`Network.setUserAgentOverride` remain available for compatibility, with the
+same caveat: changing only the UA can make the reported identity internally
+inconsistent.
 
 ## Browser profile, timezone, and geolocation
 
@@ -77,13 +81,6 @@ The current supported identity is one stable profile: Chrome 149 on Windows.
 It keeps `navigator.platform`, `navigator.userAgentData`, HTTP defaults, and
 CDP browser metadata aligned. macOS and Linux profiles are not supported yet.
 The engine has no GPU renderer: `canvas.getContext('webgl')` returns `null`.
-
-The legacy profile selectors remain accepted but are ignored while the
-identity surface is being unified:
-
-`OBSCURA_PROFILE` and `OBSCURA_ROTATE_PROFILE` are reserved for a future
-version in which every identity surface, including transport and CDP, is
-selected from the same profile.
 
 Timezone is driven by the process zone so `Date` (`getTimezoneOffset`, `toString`) and `Intl.DateTimeFormat` report the same region. Default is `Europe/Berlin`; set it to match the exit IP:
 

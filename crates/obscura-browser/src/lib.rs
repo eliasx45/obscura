@@ -4,7 +4,6 @@ pub mod lifecycle;
 pub mod page;
 #[cfg(feature = "render")]
 pub mod pdf;
-pub mod profiles;
 
 pub use context::BrowserContext;
 pub use lifecycle::{LifecycleState, WaitUntil};

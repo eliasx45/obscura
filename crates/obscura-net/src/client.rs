@@ -1,5 +1,5 @@
 use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 
@@ -34,31 +34,27 @@ fn configured_root_paths() -> Vec<std::path::PathBuf> {
     paths
 }
 
-fn configured_root_certificates() -> &'static [reqwest::Certificate] {
-    static ROOTS: OnceLock<Vec<reqwest::Certificate>> = OnceLock::new();
-
-    ROOTS.get_or_init(|| {
-        let mut certificates = Vec::new();
-        for path in configured_root_paths() {
-            let bytes = match std::fs::read(&path) {
-                Ok(bytes) => bytes,
-                Err(error) => {
-                    tracing::warn!(%error, path = %path.display(), "failed to read CA certificate file");
-                    continue;
-                }
-            };
-            match reqwest::Certificate::from_pem_bundle(&bytes) {
-                Ok(mut bundle) if !bundle.is_empty() => certificates.append(&mut bundle),
-                _ => match reqwest::Certificate::from_der(&bytes) {
-                    Ok(certificate) => certificates.push(certificate),
-                    Err(error) => {
-                        tracing::warn!(%error, path = %path.display(), "failed to parse CA certificate file");
-                    }
-                },
+fn configured_root_certificates() -> Vec<reqwest::Certificate> {
+    let mut certificates = Vec::new();
+    for path in configured_root_paths() {
+        let bytes = match std::fs::read(&path) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                tracing::warn!(%error, path = %path.display(), "failed to read CA certificate file");
+                continue;
             }
+        };
+        match reqwest::Certificate::from_pem_bundle(&bytes) {
+            Ok(mut bundle) if !bundle.is_empty() => certificates.append(&mut bundle),
+            _ => match reqwest::Certificate::from_der(&bytes) {
+                Ok(certificate) => certificates.push(certificate),
+                Err(error) => {
+                    tracing::warn!(%error, path = %path.display(), "failed to parse CA certificate file");
+                }
+            },
         }
-        certificates
-    })
+    }
+    certificates
 }
 
 /// Whether SSL_CERT_FILE / SSL_CERT_DIR request a custom TLS trust store. A
@@ -1160,11 +1156,12 @@ impl ObscuraHttpClient {
                 .dns_resolver(Arc::new(SsrfGuardResolver::new(self.allow_private_network)))
 ;
 
-            if std::env::var_os("SSL_CERT_FILE").is_some()
-                || std::env::var_os("SSL_CERT_DIR").is_some()
-            {
+            if custom_cert_store_requested(
+                std::env::var_os("SSL_CERT_FILE").as_deref(),
+                std::env::var_os("SSL_CERT_DIR").as_deref(),
+            ) {
                 for certificate in configured_root_certificates() {
-                    builder = builder.add_root_certificate(certificate.clone());
+                    builder = builder.add_root_certificate(certificate);
                 }
             }
 
@@ -2819,10 +2816,9 @@ mod ssrf_tests {
         (port, ca_cert.pem())
     }
 
-    // The two configured-roots tests set/rely on SSL_CERT_FILE, which is
-    // cached once per process at client build. They are only correct under
-    // `cargo nextest` (one process per test), the same constraint the whole
-    // workspace already has.
+    // These tests intentionally mutate process-wide environment variables.
+    // The client reads the configured roots when each client is built, so a
+    // temporary CA from one test cannot remain cached after its test ends.
 
     #[tokio::test]
     async fn configured_roots_trust_a_private_ca_via_ssl_cert_file() {

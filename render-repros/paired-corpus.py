@@ -37,12 +37,11 @@ from check import pair_metrics
 CANONICAL_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/143.0.0.0 Safari/537.36"
+    "Chrome/149.0.0.0 Safari/537.36"
 )
 CANONICAL_PLATFORM = "Win32"
 CANONICAL_UA_PLATFORM = "Windows"
-CANONICAL_UA_PLATFORM_VERSION = "10.0.0"
-CANONICAL_OBSCURA_PROFILE = 0
+CANONICAL_UA_PLATFORM_VERSION = "15.0.0"
 CANONICAL_COLOR_SCHEME = "light"
 # Obscura currently models the default motion preference, not `reduce`.
 CANONICAL_REDUCED_MOTION = "no-preference"
@@ -594,10 +593,9 @@ def obscura_environment(width, height, animation_time_ms=None):
         # Match Playwright's 50-second goto allowance. This is the browser
         # engine's millisecond ceiling, distinct from the CLI's seconds unit.
         OBSCURA_NAV_TIMEOUT_MS="50000",
-        # Pin the navigator platform/profile as well as the explicit UA. A
-        # randomized platform changes responsive content and font selection,
-        # making a renderer comparison answer the wrong question.
-        OBSCURA_PROFILE=str(CANONICAL_OBSCURA_PROFILE),
+        # Match Playwright's explicit UTC context instead of inheriting the
+        # host's process timezone. Identity and capture inputs must agree.
+        OBSCURA_TIMEZONE="UTC",
         # Run the paired corpus's read-only state/selector evaluation only after
         # all settle phases and the final scroll reassertion. No event-loop
         # pumping occurs between that evaluation and screenshot paint.
@@ -810,7 +808,7 @@ def capture_obscura(
 def chromium_identity_override(session):
     """Keep request headers and navigator identity aligned with Obscura."""
     match = re.search(r"Chrome/(\d+)", CANONICAL_USER_AGENT)
-    major = int(match.group(1)) if match else 143
+    major = int(match.group(1)) if match else 149
     grease = {
         "brand": (
             "Not"
@@ -2379,7 +2377,7 @@ def main():
             "configured_platform": CANONICAL_PLATFORM,
             "configured_ua_platform": CANONICAL_UA_PLATFORM,
             "configured_ua_platform_version": CANONICAL_UA_PLATFORM_VERSION,
-            "obscura_profile": CANONICAL_OBSCURA_PROFILE,
+            "configured_timezone": "UTC",
         },
         "capture_media": {
             "normalized": True,

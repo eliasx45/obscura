@@ -6,16 +6,14 @@ Obscura is not Chromium, so its browser identity must be kept coherent across th
 
 The stealth profile also uses the observed normal Chrome color preference (dark): `matchMedia`, CSS media-query selection, and `light-dark()` share one setting. Non-stealth runtimes retain the historical light default so this identity correction does not alter the engine's existing baseline lane.
 
-## Windows-only identity during profile unification
+## One built-in Windows identity
 
 Date: 2026-09-09
 
-Until selectable identities are wired through HTTP, TLS, JavaScript, child
-realms, and CDP from one source of truth, the supported profile table contains
-only Chrome 149 on Windows. The legacy `OBSCURA_PROFILE` and
-`OBSCURA_ROTATE_PROFILE` settings are ignored. This keeps the host OS separate
-from the reported identity and avoids advertising a macOS profile that only
-some runtime surfaces can represent.
+The only built-in preset is Chrome 149 on Windows. It is wired through HTTP,
+TLS, JavaScript, child realms, and CDP from shared constants. This keeps the
+host OS separate from the reported identity and avoids advertising macOS or
+Linux identities that only some runtime surfaces can represent.
 
 Explicit custom User-Agent APIs remain available for compatibility tests, but
 they are low-level overrides outside the supported identity contract. They are

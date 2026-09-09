@@ -96,16 +96,6 @@ Override the coordinates the `navigator.geolocation` shim reports, as `lat,lon`.
 OBSCURA_GEOLOCATION="40.7128,-74.0060" obscura serve
 ```
 
-### `OBSCURA_PROFILE`
-
-Reserved for future selectable identities. The current build supports one
-identity only, Chrome 149 on Windows, so this variable is ignored.
-
-### `OBSCURA_ROTATE_PROFILE`
-
-Reserved for future selectable identities. The current build does not rotate
-profiles and always uses Chrome 149 on Windows.
-
 ## MCP
 
 ### `OBSCURA_MCP_ALLOWED_ORIGINS`

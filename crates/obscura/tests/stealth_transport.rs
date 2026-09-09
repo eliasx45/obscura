@@ -5,10 +5,7 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use obscura::Browser;
-
-const STEALTH_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) \
-AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36";
-const ORDINARY_USER_AGENT: &str = STEALTH_USER_AGENT;
+use obscura_net::BROWSER_USER_AGENT;
 
 fn spawn_server() -> (String, mpsc::Receiver<String>) {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -46,7 +43,7 @@ fn spawn_server() -> (String, mpsc::Receiver<String>) {
     (format!("http://{}", addr), request_rx)
 }
 
-async fn navigate_user_agent(stealth: bool) -> String {
+async fn navigate_request(stealth: bool) -> String {
     let (url, request_rx) = spawn_server();
 
     let browser = Browser::builder().stealth(stealth).build().unwrap();
@@ -55,20 +52,30 @@ async fn navigate_user_agent(stealth: bool) -> String {
 
     let request = request_rx.recv_timeout(Duration::from_secs(5)).unwrap();
     request
+}
+
+fn header(request: &str, name: &str) -> Option<String> {
+    request
         .lines()
         .filter_map(|line| line.split_once(':'))
-        .find_map(|(name, value)| {
-            name.eq_ignore_ascii_case("user-agent")
+        .find_map(|(header_name, value)| {
+            header_name
+                .eq_ignore_ascii_case(name)
                 .then(|| value.trim().to_string())
         })
-        .expect("request should include a user-agent header")
 }
 
 #[tokio::test(flavor = "current_thread")]
 async fn stealth_transport_requires_compile_time_and_runtime_opt_in() {
     std::env::set_var("OBSCURA_ALLOW_PRIVATE_NETWORK", "1");
-    std::env::set_var("OBSCURA_PROFILE", "0");
+    let stealth_request = navigate_request(true).await;
+    let ordinary_request = navigate_request(false).await;
 
-    assert_eq!(navigate_user_agent(true).await, STEALTH_USER_AGENT);
-    assert_eq!(navigate_user_agent(false).await, ORDINARY_USER_AGENT);
+    // The identity is deliberately identical in both modes. The transport
+    // assertion must therefore use a wire-level property owned by wreq's
+    // Chrome emulation, not the UA string.
+    assert_eq!(header(&stealth_request, "user-agent").as_deref(), Some(BROWSER_USER_AGENT));
+    assert_eq!(header(&ordinary_request, "user-agent").as_deref(), Some(BROWSER_USER_AGENT));
+    assert_eq!(header(&stealth_request, "priority").as_deref(), Some("u=0, i"));
+    assert!(header(&ordinary_request, "priority").is_none());
 }

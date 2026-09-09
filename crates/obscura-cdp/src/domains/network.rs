@@ -160,6 +160,31 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn set_user_agent_override_remains_explicit_and_effective() {
+        let mut ctx = CdpContext::new();
+        let page_id = ctx.create_page();
+        let session_id = "session-ua".to_string();
+        ctx.sessions.insert(session_id.clone(), page_id.clone());
+        let custom_ua = "Custom-UA/1.0";
+
+        handle(
+            "setUserAgentOverride",
+            &json!({ "userAgent": custom_ua }),
+            &mut ctx,
+            &Some(session_id),
+        )
+        .await
+        .expect("CDP User-Agent override must remain supported");
+
+        let page = ctx.get_page_mut(&page_id).expect("page exists");
+        page.navigate("about:blank")
+            .await
+            .expect("override page navigation");
+        assert_eq!(page.http_client.user_agent.read().await.as_str(), custom_ua);
+        assert_eq!(page.evaluate("navigator.userAgent"), json!(custom_ua));
+    }
+
+    #[tokio::test]
     async fn set_cookie_without_session_targets_default_context() {
         let mut ctx = CdpContext::new();
         let params = json!({

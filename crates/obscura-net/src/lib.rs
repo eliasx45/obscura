@@ -5,8 +5,8 @@ pub mod interceptor;
 pub mod robots;
 pub mod blocklist;
 
-/// The only supported browser identity while profile selection is being
-/// simplified. Keep transport, JavaScript, and CDP fallbacks on these values.
+/// The only built-in browser identity. Keep transport, JavaScript, and CDP
+/// fallbacks on these values.
 pub const BROWSER_USER_AGENT: &str =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36";
 pub const BROWSER_NAVIGATOR_PLATFORM: &str = "Win32";

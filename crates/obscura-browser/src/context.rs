@@ -106,11 +106,10 @@ impl BrowserContext {
         if stealth {
             client.block_trackers = true;
         }
-        let profile = crate::profiles::select_profile();
-        let resolved_ua = user_agent.unwrap_or_else(|| profile.user_agent.to_string());
-        let platform = profile.platform.to_string();
-        let ua_platform = profile.ua_platform.to_string();
-        let ua_platform_version = profile.ua_platform_version.to_string();
+        let resolved_ua = user_agent.unwrap_or_else(|| obscura_net::BROWSER_USER_AGENT.to_string());
+        let platform = obscura_net::BROWSER_NAVIGATOR_PLATFORM.to_string();
+        let ua_platform = obscura_net::BROWSER_UA_PLATFORM.to_string();
+        let ua_platform_version = obscura_net::BROWSER_UA_PLATFORM_VERSION.to_string();
         // Sync the http client's UA at construction so navigation requests pick it
         // up before any async setup runs. The lock has no other holders here, so
         // try_write always succeeds; we fall back silently if it ever fails.
