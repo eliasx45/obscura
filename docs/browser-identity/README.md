@@ -29,7 +29,7 @@ CDP, and child realms wherever those surfaces are exposed.
 
 ## Current confirmed state
 
-- The current branch is `elias/chrome149-profile` at `f5daac6`.
+- The current branch is `elias/chrome149-profile` at `f4c1447`.
 - The renderer uses embedded Liberation, DejaVu, and Noto font assets and does
   not scan host system fonts. Common font metrics are therefore shared by
   instances using the same build. Page-provided web fonts remain page inputs.
@@ -48,6 +48,8 @@ CDP, and child realms wherever those surfaces are exposed.
 - The direct realm probe showed coherent timezone and `Function.toString`
   behavior across the main page, iframe, and worker when the process input was
   fixed.
+- A deterministic regression test now verifies that two browser contexts do
+  not share cookies or document state.
 - The offline obstacle course currently reports 32/33. The existing failure is
   `observer-intersection`, expected `io:50` but received an empty value.
 - CreepJS and BrowserScan runs in the current investigation are diagnostic
