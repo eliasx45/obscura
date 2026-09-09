@@ -16,6 +16,40 @@ use taffy::prelude::*;
 pub mod css;
 pub use css::{CssMediaType, Stylesheet, StylesheetCache};
 
+thread_local! {
+    static COLOR_SCHEME_DARK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Return the browser-level color preference for the render currently being
+/// prepared on this thread. The browser runtime installs it around each
+/// retained-layout build so CSS media queries and computed colors agree with
+/// matchMedia without making the render crate own browser-context state.
+pub(crate) fn color_scheme_dark() -> bool {
+    COLOR_SCHEME_DARK.with(std::cell::Cell::get)
+}
+
+/// Scope a render pass to one browser-level color preference.
+pub struct ColorSchemeGuard {
+    previous: bool,
+}
+
+impl ColorSchemeGuard {
+    pub fn enter(dark: bool) -> Self {
+        let previous = COLOR_SCHEME_DARK.with(|current| {
+            let previous = current.get();
+            current.set(dark);
+            previous
+        });
+        Self { previous }
+    }
+}
+
+impl Drop for ColorSchemeGuard {
+    fn drop(&mut self) {
+        COLOR_SCHEME_DARK.with(|current| current.set(self.previous));
+    }
+}
+
 pub mod style;
 pub use style::compute_style;
 
@@ -1213,9 +1247,9 @@ pub struct LayoutStyle {
     /// `border_model.colors`; this remains for programmatic LayoutStyle users.
     pub border_color: Option<[u8; 4]>,
     /// Used color scheme for CSS Color 5 `light-dark()`. The renderer's
-    /// current user preference is light; an inherited `color-scheme: dark`
-    /// subtree switches this to true, while `normal`, `light`, or a list that
-    /// permits light keeps the light scheme.
+    /// browser-level preference is inherited from the active runtime; an
+    /// inherited `color-scheme: dark` subtree switches this to true, while an
+    /// explicit light-only subtree switches it back to light.
     pub color_scheme_dark: bool,
     pub font_size: Option<f32>,
     /// `font-size` given in a font/viewport-relative unit, resolved to

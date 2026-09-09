@@ -4713,7 +4713,7 @@ fn layout_dom_once(
         animation_sample,
         animation_timeline,
         None,
-        false,
+        crate::color_scheme_dark(),
         fresh_styles.as_ref(),
     );
     resolve_css_counters(tree, &mut styles);

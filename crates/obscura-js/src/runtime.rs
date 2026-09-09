@@ -1380,6 +1380,29 @@ impl ObscuraJsRuntime {
         );
     }
 
+    /// Set the browser-level color preference before page initialization.
+    /// This keeps matchMedia, CSS media queries, and light-dark() on the same
+    /// profile instead of changing only the detector-visible JS surface.
+    pub fn set_color_scheme_dark(&mut self, enabled: bool) {
+        let mut state = self.state.borrow_mut();
+        state.color_scheme_dark = enabled;
+        #[cfg(feature = "render")]
+        {
+            state.prepared_render = None;
+            state.pending_style_mutations.clear();
+            state.stylesheet_cache = obscura_render::StylesheetCache::default();
+            state.resolved_scroll = None;
+        }
+        drop(state);
+        let _ = self.execute_runtime_script(
+            "<set-color-scheme>",
+            format!(
+                "globalThis.__obscura_color_scheme_dark = {};",
+                enabled
+            ),
+        );
+    }
+
     /// Optionally pin the page fingerprint seed for a durable browser profile.
     /// When unset, page initialization retains its existing time/random seed.
     pub fn set_fingerprint_seed(&mut self, seed: u32) {
@@ -1590,6 +1613,7 @@ impl ObscuraJsRuntime {
         surface_color: [u8; 4],
     ) -> Option<Vec<u8>> {
         let mut state = self.state.borrow_mut();
+        let _color_scheme = obscura_render::ColorSchemeGuard::enter(state.color_scheme_dark);
         let ObscuraState {
             dom,
             render_resources,
@@ -6815,6 +6839,26 @@ mod tests {
         assert_eq!(
             result,
             serde_json::json!([true, false, true, true, false, true, true, false, true, false])
+        );
+    }
+
+    #[test]
+    fn match_media_color_scheme_follows_runtime_profile() {
+        let dom = parse_html("<html><body></body></html>");
+        let mut rt = ObscuraJsRuntime::new();
+        rt.set_dom(dom);
+        rt.run_page_init();
+        assert_eq!(
+            rt.evaluate("[matchMedia('(prefers-color-scheme: light)').matches, matchMedia('(prefers-color-scheme: dark)').matches]")
+                .unwrap(),
+            serde_json::json!([true, false])
+        );
+
+        rt.set_color_scheme_dark(true);
+        assert_eq!(
+            rt.evaluate("[matchMedia('(prefers-color-scheme: light)').matches, matchMedia('(prefers-color-scheme: dark)').matches]")
+                .unwrap(),
+            serde_json::json!([false, true])
         );
     }
 

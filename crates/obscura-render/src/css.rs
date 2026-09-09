@@ -2427,6 +2427,7 @@ struct CachedStylesheet {
     sources: Vec<String>,
     viewport_bits: (u32, u32),
     media_type: CssMediaType,
+    color_scheme_dark: bool,
     source_bytes: usize,
     sheet: Arc<Stylesheet>,
 }
@@ -2440,9 +2441,11 @@ impl StylesheetCache {
         media_type: CssMediaType,
     ) -> (Arc<Stylesheet>, bool) {
         let viewport_bits = (viewport.0.to_bits(), viewport.1.to_bits());
+        let color_scheme_dark = crate::color_scheme_dark();
         if let Some(entry) = self.entry.as_ref() {
             if entry.viewport_bits == viewport_bits
                 && entry.media_type == media_type
+                && entry.color_scheme_dark == color_scheme_dark
                 && entry.sources == sources
             {
                 self.hits = self.hits.saturating_add(1);
@@ -2472,6 +2475,7 @@ impl StylesheetCache {
                 sources: sources.to_vec(),
                 viewport_bits,
                 media_type,
+                color_scheme_dark,
                 source_bytes,
                 sheet: Arc::clone(&sheet),
             });
@@ -6861,12 +6865,13 @@ fn single_media_query_applies_for_viewport(
         return false;
     }
 
-    // Color-scheme: we render the light (default) context. A site's
-    // `@media (prefers-color-scheme: dark)` block must NOT apply on top of its
-    // light defaults (that is what was leaking dark backgrounds, e.g. near
-    // black inline <code>); a `:light` block should apply.
+    // Color-scheme follows the browser-level preference installed by the
+    // runtime. A site's dark/light media blocks must agree with matchMedia.
     if compact.contains("prefers-color-scheme:dark") {
-        return false;
+        return crate::color_scheme_dark();
+    }
+    if compact.contains("prefers-color-scheme:light") {
+        return !crate::color_scheme_dark();
     }
     // Reduced-motion / high-contrast / inverted: default (no preference).
     if compact.contains("prefers-reduced-motion:reduce")
@@ -10282,6 +10287,28 @@ mod tests {
         assert!(applies(
             "not all and (min-width: 900px)",
             CssMediaType::Screen
+        ));
+    }
+
+    #[test]
+    fn color_scheme_media_queries_follow_the_active_render_profile() {
+        assert!(!media_query_applies_for_viewport(
+            "(prefers-color-scheme: dark)",
+            (800.0, 600.0)
+        ));
+        assert!(media_query_applies_for_viewport(
+            "(prefers-color-scheme: light)",
+            (800.0, 600.0)
+        ));
+
+        let _dark = crate::ColorSchemeGuard::enter(true);
+        assert!(media_query_applies_for_viewport(
+            "(prefers-color-scheme: dark)",
+            (800.0, 600.0)
+        ));
+        assert!(!media_query_applies_for_viewport(
+            "(prefers-color-scheme: light)",
+            (800.0, 600.0)
         ));
     }
 

@@ -453,18 +453,19 @@ fn apply_color_scheme(style: &mut LayoutStyle, value: &str, inherited_scheme: bo
         .iter()
         .any(|token| matches!(token.as_str(), "initial" | "revert" | "revert-layer"))
     {
-        style.color_scheme_dark = false;
+        style.color_scheme_dark = inherited_scheme;
         return;
     }
-    // The current browser/user preference is light. A scheme list that admits
-    // light therefore uses light; a dark-only list uses dark. `normal`,
-    // initial/revert, and malformed values retain the default/inherited light
-    // behavior used by this compact computed-style model.
-    if tokens.iter().any(|token| token == "light") || tokens.iter().any(|token| token == "normal") {
-        style.color_scheme_dark = false;
-    } else if tokens.iter().any(|token| token == "dark") {
-        style.color_scheme_dark = true;
-    }
+    // `normal`, an omitted scheme, and a list containing both schemes use the
+    // browser preference inherited from the root. A single-scheme list opts
+    // into that scheme explicitly.
+    let has_light = tokens.iter().any(|token| token == "light");
+    let has_dark = tokens.iter().any(|token| token == "dark");
+    style.color_scheme_dark = match (has_dark, has_light) {
+        (true, false) => true,
+        (false, true) => false,
+        _ => inherited_scheme,
+    };
 }
 
 /// Split a declaration list on top-level semicolons, respecting `url(...)`

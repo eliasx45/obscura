@@ -8474,7 +8474,12 @@ function _evaluateMediaFeature(raw) {
   }
 
   match = feature.match(/^prefers-color-scheme\s*:\s*(dark|light|no-preference)$/);
-  if (match) return match[1] === 'light';
+  if (match) {
+    const prefersDark = globalThis.__obscura_color_scheme_dark === true;
+    return match[1] === 'dark' ? prefersDark
+      : match[1] === 'light' ? !prefersDark
+      : false;
+  }
   match = feature.match(/^prefers-reduced-motion\s*:\s*(reduce|no-preference)$/);
   if (match) return match[1] === 'no-preference';
 

@@ -181,6 +181,10 @@ pub struct ObscuraState {
     /// The browser settle policy samples this to distinguish useful deferred
     /// rendering work from unrelated long-lived timers.
     pub activity_generation: u64,
+    /// Browser-level color preference used by matchMedia and the renderer.
+    /// Non-stealth runtimes keep the historical light default; stealth pages
+    /// set this to match the observed normal Chrome profile.
+    pub color_scheme_dark: bool,
     /// Monotonic identity of the currently installed document. Async resource
     /// completions use this to discard bytes and lifecycle results belonging
     /// to a navigation that has already been replaced.
@@ -374,6 +378,7 @@ impl ObscuraState {
             pending_frame_message_bytes: 0,
             page_in_flight: Arc::new(std::sync::atomic::AtomicU32::new(0)),
             activity_generation: 0,
+            color_scheme_dark: false,
             document_generation: 0,
             base_url_cache: RefCell::new(None),
             #[cfg(feature = "render")]
@@ -5795,6 +5800,7 @@ pub(crate) fn document_base_href_memoized(state: &ObscuraState) -> Option<String
 pub(crate) fn ensure_prepared_render(
     state: &mut ObscuraState,
 ) -> Option<&obscura_render::PreparedRender> {
+    let _color_scheme = obscura_render::ColorSchemeGuard::enter(state.color_scheme_dark);
     let base_url = document_base_url(state);
     let viewport = state.viewport;
     let render_media = state.render_media;

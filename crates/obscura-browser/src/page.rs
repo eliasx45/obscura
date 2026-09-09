@@ -1843,6 +1843,8 @@ impl Page {
                 &self.context.ua_platform_version,
             );
         }
+        #[cfg(feature = "stealth")]
+        rt.set_color_scheme_dark(self.stealth_client.is_some());
         if let Some((lat, lon)) = env_geolocation() {
             rt.set_geolocation(lat, lon);
         }
