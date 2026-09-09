@@ -15577,6 +15577,28 @@ mod tests {
     }
 
     #[test]
+    fn default_browser_identity_uses_chrome_149_profile() {
+        let mut rt = setup_runtime("<html><body></body></html>");
+        let identity = rt
+            .evaluate(
+                r#"(function() {
+                    return {
+                        ua: navigator.userAgent,
+                        brands: navigator.userAgentData.brands.map(function(brand) {
+                            return brand.brand + "/" + brand.version;
+                        }),
+                    };
+                })()"#,
+            )
+            .unwrap();
+        let ua = identity["ua"].as_str().unwrap();
+        assert!(ua.contains("Chrome/149.0.0.0"), "unexpected UA: {ua}");
+        let brands = identity["brands"].as_array().unwrap();
+        assert!(brands.iter().any(|brand| brand == "Chromium/149"));
+        assert!(brands.iter().any(|brand| brand == "Google Chrome/149"));
+    }
+
+    #[test]
     fn navigator_plugin_interfaces_match_platform_object_shape() {
         let mut rt = setup_runtime("<html><body></body></html>");
         let result = rt
