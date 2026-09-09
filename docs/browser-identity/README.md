@@ -29,7 +29,7 @@ CDP, and child realms wherever those surfaces are exposed.
 
 ## Current confirmed state
 
-- The current branch is `elias/chrome149-profile` at `a2525b7`.
+- The current branch is `elias/chrome149-profile` at `f5daac6`.
 - The renderer uses embedded Liberation, DejaVu, and Noto font assets and does
   not scan host system fonts. Common font metrics are therefore shared by
   instances using the same build. Page-provided web fonts remain page inputs.
