@@ -174,6 +174,12 @@ consistent browser fingerprint (user agent, timezone, navigator properties, and
 similar surfaces) so ordinary automation traffic is not singled out. They
 contain no bot or automation-abuse payload.
 
+For identity and instance-isolation work, target standards-conformant browser
+behavior, one internally coherent identity per context, isolated mutable state,
+and shared immutable engine resources. Use [the living identity and isolation
+plan](docs/browser-identity/README.md) for the test matrix and evidence rules;
+external detector sites are diagnostic controls, not product acceptance gates.
+
 ## Recommended proxy provider: NodeMaven
 
 For production scraping you usually want residential or ISP IPs rather than a
