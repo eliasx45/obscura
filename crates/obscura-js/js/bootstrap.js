@@ -21,6 +21,8 @@
     '__obscura_liveFrameIds', '__obscura_forgetFrame',
     '__obscura_registerLinkedStylesheet', '__obscura_activateLabel',
     '__obscura_isDisabled', '__obscura_labeledControl', '__obscura_interactiveHost',
+    '__obscura_format_function_to_string',
+    '__obscura_brand_function_to_string',
     '__markParserScripts', '__obscura_hasPendingDynamicScripts',
     '__obscura_hasPendingLoadDelayingScripts',
     '__obscura_nextPendingTimeoutDelay',
@@ -154,15 +156,28 @@ const _nativeFns = new Set();
 // or functions whose `.name` does not match the real builtin.
 const _nativeStr = new Map();
 const _origToString = Function.prototype.toString;
+// The runtime replaces the public wrapper with a native V8 callback after
+// bootstrap. Keep the formatter in this realm so the callback can preserve
+// exact source strings for JS-defined browser APIs without exposing the maps.
+globalThis.__obscura_format_function_to_string = function(value) {
+  if (_nativeStr.has(value)) { return _nativeStr.get(value); }
+  if (_nativeFns.has(value) || value === Function.prototype.toString) {
+    return `function ${value.name || ''}() { [native code] }`;
+  }
+  return _origToString.call(value);
+};
+globalThis.__obscura_brand_function_to_string = function(value) {
+  Object.defineProperty(value, 'name', {
+    configurable: true,
+    get() { return 'toString'; },
+  });
+  return value;
+};
 // Method syntax matches the native function's non-constructible shape and
 // does not add an own `prototype` property.
 const _functionToString = {
   toString() {
-    if (_nativeStr.has(this)) { return _nativeStr.get(this); }
-    if (_nativeFns.has(this)) {
-      return `function ${this.name || ''}() { [native code] }`;
-    }
-    return _origToString.call(this);
+    return globalThis.__obscura_format_function_to_string(this);
   },
 }.toString;
 Function.prototype.toString = _functionToString;

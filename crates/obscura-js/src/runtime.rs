@@ -252,6 +252,94 @@ fn remaining_deadline_ms(deadline: tokio::time::Instant) -> Option<u64> {
     Some(millis.min(u128::from(u64::MAX)) as u64)
 }
 
+/// Dispatches the browser's Function.prototype.toString formatter through a
+/// native V8 function. The JS formatter owns the per-realm native-source map;
+/// this native entry point supplies the intrinsic function shape and stack
+/// identity that V8 exposes for the real builtin.
+fn native_function_to_string_callback(
+    scope: &mut deno_core::v8::HandleScope,
+    args: deno_core::v8::FunctionCallbackArguments,
+    mut rv: deno_core::v8::ReturnValue,
+) {
+    use deno_core::v8;
+
+    let Some(key) = v8::String::new(scope, "__obscura_format_function_to_string") else {
+        return;
+    };
+    let global = scope.get_current_context().global(scope);
+    let Some(formatter) = global
+        .get(scope, key.into())
+        .and_then(|value| v8::Local::<v8::Function>::try_from(value).ok())
+    else {
+        return;
+    };
+    let receiver = args.this().into();
+    let undefined = v8::undefined(scope).into();
+    if let Some(result) = formatter.call(scope, undefined, &[receiver]) {
+        rv.set(result);
+    }
+}
+
+/// Install the native Function.prototype.toString replacement in one realm.
+/// The startup snapshot contains the JS fallback so realm creation remains
+/// safe even before this per-context installation runs.
+fn install_native_function_to_string<C>(
+    scope: &mut deno_core::v8::HandleScope<'_, C>,
+    context: deno_core::v8::Local<deno_core::v8::Context>,
+) {
+    use deno_core::v8;
+
+    let scope = &mut v8::ContextScope::new(scope, context);
+    let global = context.global(scope);
+    let Some(function_key) = v8::String::new(scope, "Function") else {
+        return;
+    };
+    let Some(prototype_key) = v8::String::new(scope, "prototype") else {
+        return;
+    };
+    let Some(to_string_key) = v8::String::new(scope, "toString") else {
+        return;
+    };
+    let Some(brand_key) = v8::String::new(scope, "__obscura_brand_function_to_string") else {
+        return;
+    };
+    let Some(function_constructor) = global
+        .get(scope, function_key.into())
+        .and_then(|value| v8::Local::<v8::Object>::try_from(value).ok())
+    else {
+        return;
+    };
+    let Some(function_prototype) = function_constructor
+        .get(scope, prototype_key.into())
+        .and_then(|value| value.to_object(scope))
+    else {
+        return;
+    };
+    let Some(native_name) = v8::String::new(scope, "Function") else {
+        return;
+    };
+    let template = v8::FunctionTemplate::builder(native_function_to_string_callback)
+        .length(0)
+        .constructor_behavior(v8::ConstructorBehavior::Throw)
+        .build(scope);
+    // Chrome's intrinsic has no own prototype, while FunctionTemplate adds
+    // one by default. Remove it before materializing the function.
+    template.set_class_name(native_name);
+    template.remove_prototype();
+    let Some(native_function) = template.get_function(scope) else {
+        return;
+    };
+    function_prototype.set(scope, to_string_key.into(), native_function.into());
+    let Some(brand) = global
+        .get(scope, brand_key.into())
+        .and_then(|value| v8::Local::<v8::Function>::try_from(value).ok())
+    else {
+        return;
+    };
+    let undefined = v8::undefined(scope).into();
+    brand.call(scope, undefined, &[native_function.into()]);
+}
+
 /// Handle to an armed V8 execution watchdog (see [`ObscuraJsRuntime::arm_watchdog`]).
 /// Holds the cancel channel and the watchdog thread; pass it back to
 /// `disarm_watchdog` to stop the watchdog and learn whether it fired.
@@ -584,6 +672,12 @@ impl ObscuraJsRuntime {
                 )
                 .expect("init should not fail");
 
+            {
+                let scope = &mut runtime.handle_scope();
+                let context = scope.get_current_context();
+                install_native_function_to_string(scope, context);
+            }
+
             (runtime, isolate_handle, heap_limit_state)
         };
 
@@ -649,6 +743,7 @@ impl ObscuraJsRuntime {
                     deno_core::v8::ContextOptions::default(),
                 )
             })?;
+            install_native_function_to_string(scope, context);
             deno_core::v8::Global::new(scope, context)
         };
         Some(context)
@@ -4469,8 +4564,8 @@ mod tests {
     fn function_to_string_has_native_function_shape() {
         let mut rt = setup_runtime("<html><body></body></html>");
 
-        assert_eq!(
-            rt.evaluate(
+        let result = rt
+            .evaluate(
                 r#"(() => {
                     const fn = Function.prototype.toString;
                     let constructible = true;
@@ -4479,24 +4574,35 @@ mod tests {
                     } catch (error) {
                         constructible = false;
                     }
+                    let instanceStack = "";
+                    try {
+                        fn instanceof fn;
+                    } catch (error) {
+                        instanceStack = String(error.stack);
+                    }
                     return {
                         source: fn.toString(),
                         name: fn.name,
                         length: fn.length,
                         hasOwnPrototype: Object.prototype.hasOwnProperty.call(fn, "prototype"),
                         constructible,
+                        instanceStack,
                     };
                 })()"#,
             )
-            .unwrap(),
-            serde_json::json!({
-                "source": "function toString() { [native code] }",
-                "name": "toString",
-                "length": 0,
-                "hasOwnPrototype": false,
-                "constructible": false,
-            })
+            .unwrap();
+        assert_eq!(
+            result.get("source"),
+            Some(&serde_json::json!("function toString() { [native code] }"))
         );
+        assert_eq!(result.get("name"), Some(&serde_json::json!("toString")));
+        assert_eq!(result.get("length"), Some(&serde_json::json!(0)));
+        assert_eq!(result.get("hasOwnPrototype"), Some(&serde_json::json!(false)));
+        assert_eq!(result.get("constructible"), Some(&serde_json::json!(false)));
+        assert!(result
+            .get("instanceStack")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|stack| stack.contains("at Function.[Symbol.hasInstance]")));
     }
 
     #[test]
