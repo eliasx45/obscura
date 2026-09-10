@@ -71,8 +71,10 @@ CDP, and child realms wherever those surfaces are exposed.
   jobs. An unbounded stealth run showed intermittent loopback-fixture failures
   in MCP and screenshot-resource tests; the affected targets pass alone and
   in the bounded full run. This is recorded as runner/fixture timing
-  sensitivity, with the exact scheduler/socket root cause still unisolated,
-  rather than as an implementation failure.
+  sensitivity, with the exact scheduler/socket root cause initially unisolated,
+  rather than as an implementation failure. Two subsequent unbounded reruns on
+  this commit passed 1,668/1,668, so the issue was not reproduced in final
+  verification.
 - The offline obstacle course passes 33/33 after correcting its
   `observer-intersection` fixture to model real false-to-true crossings caused
   by scrolling. The engine was not changed to manufacture repeated callbacks.

@@ -58,7 +58,9 @@ passes 1,658/1,658 with 4 skipped. The full `render,stealth` run passes
 intermittent loopback-fixture timing failures, while the affected MCP and
 screenshot targets pass in isolation and in the bounded full run. The exact
 scheduler/socket root cause is not isolated, so this remains a runner/fixture
-uncertainty rather than an implementation failure. The child-frame file passes
+uncertainty rather than an implementation failure. Two subsequent unbounded
+reruns on this commit also passed 1,668/1,668, so the issue was not reproduced
+in final verification. The child-frame file passes
 11/11 after its test restores the process-global frame-cap variable. The
 focused host-screen tests pass 10/10, the MCP target passes 18/18, and
 `obscura-net` passes 94/94 after the private-CA fix. The obstacle course passes
