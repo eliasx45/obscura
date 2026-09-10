@@ -58,11 +58,21 @@ CDP, and child realms wherever those surfaces are exposed.
   bootstrap slots. Screen overrides now use private mutable state, and the
   focused emulation tests pass 10/10.
 - The private-CA regression is fixed: serial release coverage for
-  `obscura-net` passes 94/94. The broad serial fallback has exactly three
-  child-frame lifecycle failures. The same three tests and assertions reproduce
-  on merge-base `main` commit `727cc46`, so they are baseline failures rather
-  than regressions from this identity/isolation work. The MCP target passes
-  18/18 standalone and in the completed broad run.
+  `obscura-net` passes 94/94. The three reported child-frame failures were
+  caused by `a_rejected_child_frame_does_not_leave_js_references` leaking
+  `OBSCURA_MAX_LIVE_FRAMES=0` into later tests in a reused fallback test
+  process. A drop guard now restores the prior environment value; the complete
+  child-frame file passes 11/11 with both serialized and default-thread
+  fallback execution. The MCP target passes 18/18 standalone and in the
+  completed broad run.
+- `cargo-nextest` is installed and authoritative release coverage is green:
+  the full `render` run passes 1,658/1,658 with 4 skipped; the full
+  `render,stealth` run passes 1,668/1,668 with 4 skipped when bounded to two
+  jobs. An unbounded stealth run showed intermittent loopback-fixture failures
+  in MCP and screenshot-resource tests; the affected targets pass alone and
+  in the bounded full run. This is recorded as runner/fixture timing
+  sensitivity, with the exact scheduler/socket root cause still unisolated,
+  rather than as an implementation failure.
 - The offline obstacle course passes 33/33 after correcting its
   `observer-intersection` fixture to model real false-to-true crossings caused
   by scrolling. The engine was not changed to manufacture repeated callbacks.
@@ -142,10 +152,10 @@ created and disposed.
 
 | Contexts | Navigation p50/p95 ms | State write/worker p50/p95 ms | Teardown ms | Peak RSS MB | After teardown MB | Failures |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 | 9.030 / 9.030 | 6.761 / 6.761 | 3.711 | 53.016 | 49.344 | 0 |
-| 5 | 7.850 / 8.296 | 7.035 / 7.739 | 13.763 | 66.812 | 50.422 | 0 |
-| 10 | 8.131 / 9.426 | 6.966 / 8.444 | 22.192 | 85.703 | 53.453 | 0 |
-| 20 | 7.936 / 9.556 | 6.844 / 8.052 | 45.888 | 118.859 | 54.922 | 0 |
+| 1 | 9.093 / 9.093 | 6.709 / 6.709 | 3.562 | 54.000 | 50.328 | 0 |
+| 5 | 7.606 / 8.918 | 6.743 / 7.062 | 12.989 | 67.250 | 50.859 | 0 |
+| 10 | 8.044 / 8.789 | 6.540 / 7.166 | 23.190 | 85.406 | 53.156 | 0 |
+| 20 | 7.898 / 8.369 | 6.593 / 7.504 | 46.485 | 120.297 | 56.359 | 0 |
 
 All state, proxy, and live-page reachability checks passed at every level. RSS
 and teardown grow with the number of live contexts, while post-teardown RSS
@@ -172,7 +182,9 @@ no unsolicited actions, and no detector-page instrumentation.
 | Same-build font/render fixture | Shared immutable renderer behavior | Stable metrics under identical inputs |
 | Obstacle course | Broad offline capability regression | 33/33 |
 | Release configuration builds | Render, stealth, no-render, no-render stealth | All supported configurations build |
-| Focused nextest | Changed crates and identity/isolation tests | Not run: locked install timed out reaching crates.io |
+| Focused nextest | Changed crates and identity/isolation tests | Pass: child frames 11/11, CDP ownership 7/7, identity/isolation 2/2, stealth transport 1/1, gzip transport 1/1 |
+| Full release nextest | Complete render suite | Pass: 1,658/1,658, 4 skipped |
+| Full release nextest with stealth | Complete render + stealth suite | Pass with `-j 2`: 1,668/1,668, 4 skipped; unbounded run had intermittent local-fixture timing failures whose exact root cause is not isolated |
 | Bounded multi-context benchmark | Lightweight concurrency and lifecycle | 1/5/10/20 pass with zero state, proxy, and reachability failures |
 | CreepJS / BrowserScan | Diagnostic surface inspection | Row-level evidence only, never headline-only acceptance |
 

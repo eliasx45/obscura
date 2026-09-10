@@ -37,10 +37,10 @@ passed the immediate and post-batch checks for every level:
 
 | Contexts | Navigation p50/p95 ms | State write/worker p50/p95 ms | Teardown ms | Peak RSS MB | After teardown MB | Failures |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 | 9.030 / 9.030 | 6.761 / 6.761 | 3.711 | 53.016 | 49.344 | 0 |
-| 5 | 7.850 / 8.296 | 7.035 / 7.739 | 13.763 | 66.812 | 50.422 | 0 |
-| 10 | 8.131 / 9.426 | 6.966 / 8.444 | 22.192 | 85.703 | 53.453 | 0 |
-| 20 | 7.936 / 9.556 | 6.844 / 8.052 | 45.888 | 118.859 | 54.922 | 0 |
+| 1 | 9.093 / 9.093 | 6.709 / 6.709 | 3.562 | 54.000 | 50.328 | 0 |
+| 5 | 7.606 / 8.918 | 6.743 / 7.062 | 12.989 | 67.250 | 50.859 | 0 |
+| 10 | 8.044 / 8.789 | 6.540 / 7.166 | 23.190 | 85.406 | 53.156 | 0 |
+| 20 | 7.898 / 8.369 | 6.593 / 7.504 | 46.485 | 120.297 | 56.359 | 0 |
 
 Every state, proxy, and page-reachability check passed. These numbers describe
 one local fixture and are not evidence about live-site detectors or long-lived
@@ -52,15 +52,18 @@ alive while creating and disposing later contexts, then re-evaluates every
 earlier page. It covers document state, cookies, local/session storage,
 workers, headers, proxy routing, and teardown.
 
-The required `cargo-nextest` runner was not available: its locked install
-downloaded the package but timed out fetching `serde_core` from crates.io. The
-serial `cargo test --release --features render` fallback passed all targets
-except three child-frame lifecycle assertions. Those exact assertions reproduce
-on merge-base `main` commit `727cc46`, so they are baseline failures, not
-regressions from this work. The focused host-screen tests pass 10/10, the MCP
-target passes 18/18, and `obscura-net` passes 94/94 after the private-CA fix.
-The obstacle course passes 33/33 after its fixture was corrected to model real
-IntersectionObserver crossings.
+`cargo-nextest` is installed and authoritative. The full release `render` run
+passes 1,658/1,658 with 4 skipped. The full `render,stealth` run passes
+1,668/1,668 with 4 skipped at `-j 2`; an unbounded stealth run showed
+intermittent loopback-fixture timing failures, while the affected MCP and
+screenshot targets pass in isolation and in the bounded full run. The exact
+scheduler/socket root cause is not isolated, so this remains a runner/fixture
+uncertainty rather than an implementation failure. The child-frame file passes
+11/11 after its test restores the process-global frame-cap variable. The
+focused host-screen tests pass 10/10, the MCP target passes 18/18, and
+`obscura-net` passes 94/94 after the private-CA fix. The obstacle course passes
+33/33 after its fixture was corrected to model real IntersectionObserver
+crossings.
 
 ## Consequences
 

@@ -7,6 +7,29 @@ use std::io::{Read, Write};
 
 use obscura::Browser;
 
+struct EnvironmentVariableGuard {
+    key: &'static str,
+    previous: Option<std::ffi::OsString>,
+}
+
+impl EnvironmentVariableGuard {
+    fn set(key: &'static str, value: &str) -> Self {
+        let previous = std::env::var_os(key);
+        std::env::set_var(key, value);
+        Self { key, previous }
+    }
+}
+
+impl Drop for EnvironmentVariableGuard {
+    fn drop(&mut self) {
+        if let Some(previous) = self.previous.take() {
+            std::env::set_var(self.key, previous);
+        } else {
+            std::env::remove_var(self.key);
+        }
+    }
+}
+
 const PARENT_HTML: &str = r#"<!doctype html><html><head><title>parent</title></head><body>
 <script>
   var f = document.createElement('iframe');
@@ -321,7 +344,7 @@ async fn a_static_child_frame_runs_its_own_script() {
 #[tokio::test]
 async fn a_rejected_child_frame_does_not_leave_js_references() {
     std::env::set_var("OBSCURA_ALLOW_PRIVATE_NETWORK", "1");
-    std::env::set_var("OBSCURA_MAX_LIVE_FRAMES", "0");
+    let _max_live_frames = EnvironmentVariableGuard::set("OBSCURA_MAX_LIVE_FRAMES", "0");
     let base = spawn_server(STATIC_PARENT_HTML);
 
     let browser = Browser::new().unwrap();

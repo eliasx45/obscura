@@ -180,6 +180,12 @@ and shared immutable engine resources. Use [the living identity and isolation
 plan](docs/browser-identity/README.md) for the test matrix and evidence rules;
 external detector sites are diagnostic controls, not product acceptance gates.
 
+When changing browser identity, timezone, UA/CDP overrides, context isolation,
+shared renderer resources, or test-environment assumptions, read
+[`docs/agent-learnings.md`](docs/agent-learnings.md) first. Update that document
+when a non-obvious implementation rationale or reusable failure pattern is
+confirmed, rather than recording only a one-off line-specific fact.
+
 ## Recommended proxy provider: NodeMaven
 
 For production scraping you usually want residential or ISP IPs rather than a
