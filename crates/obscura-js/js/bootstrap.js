@@ -7202,6 +7202,10 @@ class Screen {
 });
 globalThis.Screen = Screen;
 globalThis.screen = new Screen(1920, 1080);
+// Snapshot-backed Window internals can be exposed as non-writable data
+// properties after the page Window is installed. Keep mutable emulation state
+// in the bootstrap closure so CDP can apply it before or after document init.
+const _screenOverrideState = { width: null, height: null, emulated: false };
 function _applyScreenSize(w, h, emulated) {
   if (globalThis.screen instanceof Screen) {
     globalThis.screen._w = w;
@@ -7213,15 +7217,15 @@ function _applyScreenSize(w, h, emulated) {
   }
 }
 globalThis.__obscura_set_screen_override = function(w, h, emulated) {
-  globalThis.__obscura_screen_emulated = !!emulated;
+  _screenOverrideState.emulated = !!emulated;
   if (Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0) {
-    globalThis.__obscura_screen_w = w;
-    globalThis.__obscura_screen_h = h;
+    _screenOverrideState.width = w;
+    _screenOverrideState.height = h;
     _applyScreenSize(w, h, !!emulated);
     return;
   }
-  delete globalThis.__obscura_screen_w;
-  delete globalThis.__obscura_screen_h;
+  _screenOverrideState.width = null;
+  _screenOverrideState.height = null;
   const fallback = _fp('screen');
   _applyScreenSize(fallback[0], fallback[1], !!emulated);
 };
@@ -15437,10 +15441,10 @@ globalThis.__obscura_init = function() {
   _reconcileWindowNamedProperties(previousWindowNames);
 
   const scr = _fp('screen');
-  const sw = Number.isFinite(globalThis.__obscura_screen_w) && globalThis.__obscura_screen_w > 0
-    ? globalThis.__obscura_screen_w : scr[0];
-  const sh = Number.isFinite(globalThis.__obscura_screen_h) && globalThis.__obscura_screen_h > 0
-    ? globalThis.__obscura_screen_h : scr[1];
+  const sw = Number.isFinite(_screenOverrideState.width) && _screenOverrideState.width > 0
+    ? _screenOverrideState.width : scr[0];
+  const sh = Number.isFinite(_screenOverrideState.height) && _screenOverrideState.height > 0
+    ? _screenOverrideState.height : scr[1];
   // The OS screen and the page viewport are different browser concepts.
   // Keep the fingerprinted screen, but let the embedding browser provide the
   // actual CSS viewport so responsive JavaScript, layout, and screenshots all
@@ -15449,7 +15453,7 @@ globalThis.__obscura_init = function() {
     ? globalThis.__obscura_viewport_w : sw;
   const vh = Number.isFinite(globalThis.__obscura_viewport_h) && globalThis.__obscura_viewport_h > 0
     ? globalThis.__obscura_viewport_h : sh - 80;
-  _applyScreenSize(sw, sh, !!globalThis.__obscura_screen_emulated);
+  _applyScreenSize(sw, sh, _screenOverrideState.emulated);
   globalThis.visualViewport = { width:vw, height:vh, offsetLeft:0, offsetTop:0, scale:1, addEventListener(){}, removeEventListener(){} };
   // Screen dimensions do not determine the output device scale. The embedding
   // browser applies an explicit device metric after page initialization; the

@@ -271,9 +271,17 @@ impl CdpContext {
     }
 
     pub fn create_browser_context(&mut self) -> String {
+        self.create_browser_context_with_proxy(None)
+    }
+
+    pub fn create_browser_context_with_proxy(&mut self, proxy_url: Option<String>) -> String {
         self.browser_context_counter += 1;
         let id = format!("context-{}", self.browser_context_counter);
-        let context = Arc::new(self.default_context.isolated_copy(id.clone(), false));
+        let context = Arc::new(self.default_context.isolated_copy_with_proxy(
+            id.clone(),
+            false,
+            proxy_url,
+        ));
         self.browser_contexts.insert(id.clone(), context);
         id
     }
@@ -733,8 +741,8 @@ pub async fn dispatch(req: &CdpRequest, ctx: &mut CdpContext) -> CdpResponse {
     // CDP messages, so two of this connection's pages could still interleave V8
     // work on this one thread and trip
     // `heap->isolate() == Isolate::TryGetCurrent()`. The per-connection lock
-    // (`ctx.v8_lock`) keeps each handler contiguous: V8 fully exits one Isolate
-    // before the next of this connection's pages is allowed in. It is
+    // (`ctx.v8_lock`) keeps each handler serialized: V8 fully exits one
+    // Isolate before the next of this connection's pages is allowed in. It is
     // per-connection, not process-wide, so other connections run in parallel.
     //
     // Optimization: methods that demonstrably never touch V8 bypass the lock

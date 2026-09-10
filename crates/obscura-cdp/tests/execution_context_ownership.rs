@@ -29,6 +29,51 @@ async fn create_and_attach(ctx: &mut CdpContext, url: &str, id: u64) -> (String,
     (target, session)
 }
 
+async fn create_context_page(ctx: &mut CdpContext, id: u64) -> (String, String, String) {
+    let created = cdp(ctx, id, "Target.createBrowserContext", json!({}), None).await;
+    let context = created.result.unwrap()["browserContextId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let target = cdp(
+        ctx,
+        id + 1,
+        "Target.createTarget",
+        json!({"url": "about:blank", "browserContextId": context}),
+        None,
+    )
+    .await;
+    let target_id = target.result.unwrap()["targetId"].as_str().unwrap().to_string();
+    let attached = cdp(
+        ctx,
+        id + 2,
+        "Target.attachToTarget",
+        json!({"targetId": target_id, "flatten": true}),
+        None,
+    )
+    .await;
+    let session = attached.result.unwrap()["sessionId"].as_str().unwrap().to_string();
+    (context, target_id, session)
+}
+
+async fn evaluate_value(
+    ctx: &mut CdpContext,
+    id: u64,
+    session: &str,
+    expression: &str,
+) -> Value {
+    let response = cdp(
+        ctx,
+        id,
+        "Runtime.evaluate",
+        json!({"expression": expression, "returnByValue": true}),
+        Some(session),
+    )
+    .await;
+    assert!(response.error.is_none(), "evaluation failed: {:?}", response.error);
+    response.result.unwrap()["result"]["value"].clone()
+}
+
 fn latest_default_context(ctx: &CdpContext, session: &str) -> (i64, String, String) {
     let context = &ctx.pending_events.iter().rev().find(|event| {
         event.method == "Runtime.executionContextCreated"
@@ -142,6 +187,155 @@ async fn navigating_one_page_preserves_the_other_pages_isolated_context() {
         json!({"expression": "1", "contextId": first_isolated}), Some(&first),
     ).await;
     assert!(first_is_stale.error.unwrap().message.contains("Cannot find context"));
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn live_contexts_keep_state_after_later_context_creation_and_disposal() {
+    let mut ctx = CdpContext::new();
+    let (context_a, page_a, session_a) = create_context_page(&mut ctx, 1).await;
+    let (context_b, page_b, session_b) = create_context_page(&mut ctx, 10).await;
+
+    for (id, session) in [(20, &session_a), (21, &session_b)] {
+        let enabled = cdp(&mut ctx, id, "Runtime.enable", json!({}), Some(session)).await;
+        assert!(enabled.error.is_none());
+    }
+
+    for (id, session, marker) in [(30, &session_a, "A"), (31, &session_b, "B")] {
+        let cookie = cdp(
+            &mut ctx,
+            id,
+            "Network.setCookie",
+            json!({
+                "name": "owner",
+                "value": marker,
+                "url": "https://example.test/"
+            }),
+            Some(session),
+        )
+        .await;
+        assert!(cookie.error.is_none(), "cookie write failed: {:?}", cookie.error);
+
+        let written = evaluate_value(
+            &mut ctx,
+            id + 1,
+            session,
+            &format!(
+                r#"(function() {{
+                    const marker = '{marker}';
+                    globalThis.__owner = marker;
+                    globalThis.__closure = () => marker;
+                    globalThis.__eventReply = null;
+                    document.body.addEventListener('click', () => {{
+                        globalThis.__eventReply = globalThis.__closure();
+                    }});
+                    document.body.dispatchEvent(new Event('click'));
+                    localStorage.setItem('owner', marker);
+                    sessionStorage.setItem('owner', marker);
+                    const workerUrl = URL.createObjectURL(new Blob([
+                        "postMessage('{marker}')"
+                    ], {{type: 'application/javascript'}}));
+                    globalThis.__worker = new Worker(workerUrl);
+                    globalThis.__worker.onmessage = event => {{
+                        globalThis.__workerReply = event.data;
+                        globalThis.__worker.terminate();
+                        URL.revokeObjectURL(workerUrl);
+                    }};
+                    globalThis.__worker.postMessage(marker);
+                    return JSON.stringify({{
+                        owner: globalThis.__owner,
+                        closure: globalThis.__closure(),
+                        event: globalThis.__eventReply,
+                        local: localStorage.getItem('owner'),
+                        session: sessionStorage.getItem('owner')
+                    }});
+                }})()"#
+            ),
+        )
+        .await;
+        let written: Value = serde_json::from_str(written.as_str().unwrap()).unwrap();
+        assert_eq!(written["owner"], marker);
+        assert_eq!(written["closure"], marker);
+        assert_eq!(written["event"], marker);
+        assert_eq!(written["local"], marker);
+        assert_eq!(written["session"], marker);
+    }
+
+    for page_id in [&page_a, &page_b] {
+        ctx.get_page_mut(page_id)
+            .expect("page exists")
+            .settle(250)
+            .await;
+    }
+
+    let (context_c, page_c, session_c) = create_context_page(&mut ctx, 40).await;
+    let c_state = evaluate_value(&mut ctx, 43, &session_c, "JSON.stringify({owner: globalThis.__owner || null, local: localStorage.getItem('owner'), session: sessionStorage.getItem('owner')})").await;
+    assert_eq!(c_state, r#"{"owner":null,"local":null,"session":null}"#);
+
+    for (id, session, marker) in [(50, &session_a, "A"), (60, &session_b, "B")] {
+        let state = evaluate_value(
+            &mut ctx,
+            id,
+            session,
+            "JSON.stringify({owner: globalThis.__owner, closure: globalThis.__closure(), event: globalThis.__eventReply, worker: globalThis.__workerReply, local: localStorage.getItem('owner'), session: sessionStorage.getItem('owner')})",
+        )
+        .await;
+        let state: Value = serde_json::from_str(state.as_str().unwrap()).unwrap();
+        assert_eq!(state["owner"], marker);
+        assert_eq!(state["closure"], marker);
+        assert_eq!(state["event"], marker);
+        assert_eq!(state["worker"], marker);
+        assert_eq!(state["local"], marker);
+        assert_eq!(state["session"], marker);
+
+        let cookies = cdp(
+            &mut ctx,
+            id + 1,
+            "Network.getCookies",
+            json!({"urls": ["https://example.test/"]}),
+            Some(session),
+        )
+        .await;
+        assert!(cookies.error.is_none());
+        assert_eq!(cookies.result.unwrap()["cookies"][0]["value"], marker);
+    }
+
+    cdp(
+        &mut ctx,
+        70,
+        "Target.disposeBrowserContext",
+        json!({"browserContextId": context_c}),
+        None,
+    )
+    .await;
+    assert!(ctx.get_page(&page_c).is_none());
+    assert!(ctx.get_page(&page_a).is_some());
+    assert!(ctx.get_page(&page_b).is_some());
+
+    // Re-evaluate after disposing a later context. This is the lifecycle edge
+    // that the benchmark previously missed when it only checked immediate
+    // writes before post-batch evaluation.
+    assert_eq!(evaluate_value(&mut ctx, 71, &session_a, "globalThis.__closure()").await, "A");
+    assert_eq!(evaluate_value(&mut ctx, 72, &session_b, "globalThis.__closure()").await, "B");
+
+    cdp(
+        &mut ctx,
+        80,
+        "Target.disposeBrowserContext",
+        json!({"browserContextId": context_a}),
+        None,
+    )
+    .await;
+    assert!(ctx.get_page(&page_a).is_none());
+    assert!(ctx.get_page(&page_b).is_some());
+    cdp(
+        &mut ctx,
+        81,
+        "Target.disposeBrowserContext",
+        json!({"browserContextId": context_b}),
+        None,
+    )
+    .await;
+    assert!(ctx.pages.is_empty());
 }
 
 #[tokio::test(flavor = "current_thread")]

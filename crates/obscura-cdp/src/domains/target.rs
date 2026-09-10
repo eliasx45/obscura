@@ -260,7 +260,45 @@ pub async fn handle(
             Ok(json!({ "browserContextIds": ids }))
         }
         "createBrowserContext" => {
-            let id = ctx.create_browser_context();
+            let proxy_url = match params.get("proxyServer") {
+                None | Some(Value::Null) => None,
+                Some(Value::String(proxy)) if !proxy.is_empty() => {
+                    let parsed = url::Url::parse(proxy)
+                        .map_err(|_| "proxyServer must be a valid proxy URL".to_string())?;
+                    if !matches!(parsed.scheme(), "http" | "https" | "socks4" | "socks5") {
+                        return Err(format!(
+                            "unsupported proxyServer scheme: {}",
+                            parsed.scheme()
+                        ));
+                    }
+                    Some(proxy.clone())
+                }
+                Some(Value::String(_)) => {
+                    return Err("proxyServer must not be empty".to_string());
+                }
+                Some(_) => return Err("proxyServer must be a string or null".to_string()),
+            };
+
+            // Obscura's HTTP clients currently support one proxy for every
+            // request in a context, not a per-host bypass list. Reject an
+            // explicit bypass list rather than silently routing it wrong.
+            if params
+                .get("proxyBypassList")
+                .and_then(Value::as_str)
+                .is_some_and(|bypass| !bypass.is_empty())
+            {
+                return Err(
+                    "proxyBypassList is not supported for BrowserContext proxies".to_string(),
+                );
+            }
+            if params
+                .get("proxyBypassList")
+                .is_some_and(|bypass| !bypass.is_null() && !bypass.is_string())
+            {
+                return Err("proxyBypassList must be a string or null".to_string());
+            }
+
+            let id = ctx.create_browser_context_with_proxy(proxy_url);
             Ok(json!({ "browserContextId": id }))
         }
         "disposeBrowserContext" => {
@@ -359,6 +397,40 @@ mod tests {
             .await
             .expect("context listing should succeed");
         assert_eq!(listed["browserContextIds"], json!([context_id]));
+    }
+
+    #[tokio::test]
+    async fn browser_context_proxy_is_owned_and_unsupported_bypass_is_rejected() {
+        let mut ctx = CdpContext::new();
+        let created = handle(
+            "createBrowserContext",
+            &json!({"proxyServer": "http://127.0.0.1:39991"}),
+            &mut ctx,
+            &None,
+        )
+        .await
+        .expect("proxy context creation should succeed");
+        let context_id = created["browserContextId"].as_str().unwrap();
+        assert_eq!(
+            ctx.browser_context(context_id)
+                .unwrap()
+                .proxy_url
+                .as_deref(),
+            Some("http://127.0.0.1:39991")
+        );
+
+        let unsupported = handle(
+            "createBrowserContext",
+            &json!({
+                "proxyServer": "http://127.0.0.1:39992",
+                "proxyBypassList": "example.test"
+            }),
+            &mut ctx,
+            &None,
+        )
+        .await
+        .expect_err("unsupported bypass must not be silently ignored");
+        assert!(unsupported.contains("proxyBypassList"));
     }
 
     #[tokio::test]

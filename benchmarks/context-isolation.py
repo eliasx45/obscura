@@ -11,6 +11,7 @@ Usage:
 """
 
 import argparse
+import http.client
 import json
 import os
 import statistics
@@ -46,6 +47,54 @@ class FixtureHandler(BaseHTTPRequestHandler):
         body = FIXTURE_HTML.encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *_args):
+        pass
+
+
+class ProxyHandler(BaseHTTPRequestHandler):
+    target_port = None
+    label = ""
+    requests = []
+    requests_lock = threading.Lock()
+
+    def do_GET(self):  # noqa: N802 - BaseHTTPRequestHandler API
+        parsed = urlparse(self.path)
+        query = parse_qs(parsed.query)
+        instance = query.get("instance", [""])[0]
+        with self.requests_lock:
+            self.requests.append(
+                {
+                    "instance": instance,
+                    "context": self.headers.get("X-Context", ""),
+                    "proxy": self.label,
+                }
+            )
+
+        path = parsed.path or "/"
+        if parsed.query:
+            path += f"?{parsed.query}"
+        connection = http.client.HTTPConnection("127.0.0.1", self.target_port, timeout=5)
+        try:
+            connection.request(
+                "GET",
+                path,
+                headers={"X-Context": self.headers.get("X-Context", "")},
+            )
+            response = connection.getresponse()
+            body = response.read()
+        finally:
+            connection.close()
+
+        self.send_response(response.status)
+        for name, value in response.getheaders():
+            if name.lower() not in {"connection", "content-length", "transfer-encoding"}:
+                self.send_header(name, value)
+        self.send_header("X-Proxy-Label", self.label)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Connection", "close")
         self.end_headers()
@@ -91,19 +140,25 @@ def summarize(values):
     }
 
 
-def run_level(browser, url, process, count):
+def run_level(browser, url, process, count, proxy_servers):
     contexts = []
     pages = []
     creation_ms = []
     navigation_ms = []
     state_ms = []
     state_failures = []
+    proxy_failures = []
+    page_reachability_failures = []
     peak_rss = rss_mb(process)
 
     for index in range(count):
         token = f"context-{count}-{index}"
+        proxy_label, proxy_port = proxy_servers[index]
         started = time.perf_counter()
-        context = browser.new_context(viewport={"width": 1280, "height": 720})
+        context = browser.new_context(
+            viewport={"width": 1280, "height": 720},
+            proxy={"server": f"http://127.0.0.1:{proxy_port}"},
+        )
         context.set_extra_http_headers({"X-Context": token})
         creation_ms.append((time.perf_counter() - started) * 1000)
         page = context.new_page()
@@ -151,24 +206,27 @@ def run_level(browser, url, process, count):
         if result != expected:
             state_failures.append({"token": token, "expected": expected, "got": result})
         contexts.append(context)
-        pages.append((token, page))
+        pages.append((token, page, proxy_label))
         peak_rss = max(peak_rss, rss_mb(process))
 
     # Re-read every context after the whole batch has been populated. This
     # catches shared storage or document state that a same-context write/read
     # would miss because the last writer could mask the leak.
-    for token, page in pages:
+    for token, page, proxy_label in pages:
         try:
             result = page.evaluate(
-                """() => ({
+                """async token => ({
                     local: localStorage.getItem('owner'),
                     session: sessionStorage.getItem('owner'),
                     cookie: document.cookie,
                     document: globalThis.__owner,
-                })"""
+                    proxy: await fetch('/fixture.html?instance=' + encodeURIComponent(token) + '&probe=post')
+                        .then(response => response.headers.get('x-proxy-label')),
+                })""",
+                token,
             )
         except Exception as error:
-            state_failures.append(
+            page_reachability_failures.append(
                 {"token": token, "expected_after_batch": "live page", "error": str(error)}
             )
             continue
@@ -178,22 +236,37 @@ def run_level(browser, url, process, count):
             "cookie": f"owner={token}",
             "document": token,
         }
-        if result != expected:
+        actual_state = {key: result.get(key) for key in expected}
+        if actual_state != expected:
             state_failures.append(
-                {"token": token, "expected_after_batch": expected, "got": result}
+                {"token": token, "expected_after_batch": expected, "got": actual_state}
+            )
+        if result.get("proxy") != proxy_label:
+            proxy_failures.append(
+                {"token": token, "expected_proxy": proxy_label, "got_proxy": result.get("proxy")}
             )
 
-    with FixtureHandler.requests_lock:
-        captured = {
-            request["instance"]: request["context"]
-            for request in FixtureHandler.requests
-            if request["instance"].startswith(f"context-{count}-")
-        }
+    with ProxyHandler.requests_lock:
+        proxy_captured = [request for request in ProxyHandler.requests if request["instance"].startswith(f"context-{count}-")]
     for index in range(count):
         token = f"context-{count}-{index}"
-        if captured.get(token) != token:
-            state_failures.append(
-                {"token": token, "expected_header": token, "got_header": captured.get(token)}
+        expected_proxy = proxy_servers[index][0]
+        matching = [request for request in proxy_captured if request["instance"] == token]
+        if not any(request["context"] == token for request in matching):
+            proxy_failures.append(
+                {
+                    "token": token,
+                    "expected_header": token,
+                    "got_headers": [request["context"] for request in matching],
+                }
+            )
+        if not any(request["proxy"] == expected_proxy for request in matching):
+            proxy_failures.append(
+                {
+                    "token": token,
+                    "expected_proxy": expected_proxy,
+                    "got_proxies": [request["proxy"] for request in matching],
+                }
             )
 
     started = time.perf_counter()
@@ -213,6 +286,8 @@ def run_level(browser, url, process, count):
             "after_teardown_mb": round(after_teardown_rss, 3),
         },
         "state_failures": state_failures,
+        "proxy_failures": proxy_failures,
+        "page_reachability_failures": page_reachability_failures,
     }
 
 
@@ -235,6 +310,19 @@ def main():
     fixture_port = free_port()
     fixture_server = ThreadingHTTPServer(("127.0.0.1", fixture_port), FixtureHandler)
     threading.Thread(target=fixture_server.serve_forever, daemon=True).start()
+    proxy_servers = []
+    proxy_httpd = []
+    for index in range(max(levels)):
+        proxy_port = free_port()
+        proxy_class = type(
+            f"ContextProxy{index}",
+            (ProxyHandler,),
+            {"target_port": fixture_port, "label": f"proxy-{index}"},
+        )
+        proxy_server = ThreadingHTTPServer(("127.0.0.1", proxy_port), proxy_class)
+        threading.Thread(target=proxy_server.serve_forever, daemon=True).start()
+        proxy_servers.append((f"proxy-{index}", proxy_port))
+        proxy_httpd.append(proxy_server)
     fixture_url = f"http://127.0.0.1:{fixture_port}/fixture.html"
     command = [
         binary,
@@ -244,6 +332,7 @@ def main():
         "--allow-private-network",
         "--quiet",
     ]
+    os.environ.setdefault("PLAYWRIGHT_DISABLE_FORCED_CHROMIUM_PROXIED_LOOPBACK", "1")
     process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     server_process = psutil.Process(process.pid)
 
@@ -264,13 +353,15 @@ def main():
             try:
                 for repetition in range(args.repetitions):
                     for level in levels:
-                        row = run_level(browser, fixture_url, server_process, level)
+                        row = run_level(browser, fixture_url, server_process, level, proxy_servers)
                         row["repetition"] = repetition + 1
                         all_rows.append(row)
             finally:
                 browser.close()
     finally:
         fixture_server.shutdown()
+        for proxy_server in proxy_httpd:
+            proxy_server.shutdown()
         process.terminate()
         try:
             process.wait(timeout=5)
@@ -284,7 +375,12 @@ def main():
         "repetitions": args.repetitions,
         "fixture": "local static HTML, 1280x720 viewport",
         "results": all_rows,
-        "state_failures": sum(len(row["state_failures"]) for row in all_rows),
+        "state_failures": sum(
+            len(row["state_failures"])
+            + len(row["proxy_failures"])
+            + len(row["page_reachability_failures"])
+            for row in all_rows
+        ),
     }
     if args.json:
         print(json.dumps(result, indent=2))
@@ -301,7 +397,12 @@ def main():
             state95 = [row["state_check"]["p95_ms"] for row in rows]
             teardown = [row["teardown_ms"] for row in rows]
             peak = [row["rss"]["peak_mb"] for row in rows]
-            failures = sum(len(row["state_failures"]) for row in rows)
+            failures = sum(
+                len(row["state_failures"])
+                + len(row["proxy_failures"])
+                + len(row["page_reachability_failures"])
+                for row in rows
+            )
             print(
                 f"{level:>8}  {statistics.median(nav):>5.1f}/{statistics.median(nav95):<5.1f}"
                 f"       {statistics.median(state):>5.1f}/{statistics.median(state95):<5.1f}"

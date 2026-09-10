@@ -1077,8 +1077,7 @@ async fn cdp_processor(
         }
 
         // Dispatch may have created a page or scheduled new asynchronous work.
-        // A single live isolate is the connection's current active target; the
-        // pump will park cheaply if its next task is a distant timer.
+        // The pump will park cheaply if its next task is a distant timer.
         runtime_pump_armed = ctx.pages.iter().any(|page| page.has_js());
         runtime_pump_error_streak = 0;
 
@@ -1473,16 +1472,14 @@ async fn process_with_interception(
     // `op_fetch_url`'s `resolve_rx.await` *with Isolate-N still entered*),
     // we must NOT let the parent's `select!` route foreign Cdp messages
     // through `process_cdp_message → dispatch → page handlers`, because
-    // those handlers call `get_session_page_mut` which `suspend_js`'es
-    // OTHER pages (drops their `JsRuntime`, which calls
-    // `JsRealmInner::destroy`). That trips V8's
+    // those handlers may enter another page's live V8 runtime while this
+    // navigation task is still active. That trips V8's
     // `heap->isolate() == Isolate::TryGetCurrent()` invariant and aborts
     // the process via `V8_Fatal`.
     //
-    // This connection's `ctx.v8_lock` doesn't save us here: it's a
-    // `tokio::sync::Mutex` that is released around `.await`s inside V8
-    // ops, so it doesn't actually keep the V8 enter/exit pair contiguous
-    // on the thread.
+    // This connection's `ctx.v8_lock` serializes ordinary handlers, but it is
+    // not safe to dispatch another V8 command while the navigation task may
+    // still own an entered runtime across an async operation.
     //
     // Park foreign Cdp messages into the outer deferred queue so the
     // outer `cdp_processor` loop processes them after this nav fully
@@ -1534,9 +1531,9 @@ async fn process_with_interception(
                             // the nav task's thread.
                             handle_fetch_resolution(&msg.text, ctx, &msg.reply_tx, intercepted_paused);
                         } else {
-                            // UNSAFE during nav: would route through dispatch,
-                            // which can `suspend_js` other pages and trip the
-                            // V8 invariant. Defer until nav completes —
+                            // UNSAFE during nav: would route through dispatch
+                            // while the navigation task may still own an
+                            // entered runtime. Defer until nav completes,
                             // pushed to the outer `cdp_processor` queue so
                             // it's processed sequentially with no nav task
                             // in flight.

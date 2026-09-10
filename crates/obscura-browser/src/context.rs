@@ -157,14 +157,27 @@ impl BrowserContext {
     /// current cookies; incognito copies start empty and never write to the
     /// template's storage directory.
     pub fn isolated_copy(&self, id: String, persistent: bool) -> Self {
+        self.isolated_copy_with_proxy(id, persistent, None)
+    }
+
+    /// Create an isolated context, optionally replacing the process-default
+    /// proxy. A missing override inherits the process default; an explicit
+    /// proxy is owned by this context and is used to build its HTTP client.
+    pub fn isolated_copy_with_proxy(
+        &self,
+        id: String,
+        persistent: bool,
+        proxy_override: Option<String>,
+    ) -> Self {
         let cookie_jar = Arc::new(CookieJar::new());
         if persistent {
             cookie_jar.set_cookies_from_cdp(self.cookie_jar.get_all_cookies());
         }
 
+        let proxy_url = proxy_override.or_else(|| self.proxy_url.clone());
         let mut client = ObscuraHttpClient::with_full_options(
             cookie_jar.clone(),
-            self.proxy_url.as_deref(),
+            proxy_url.as_deref(),
             self.allow_private_network,
         );
         if self.stealth {
@@ -182,7 +195,7 @@ impl BrowserContext {
             platform: self.platform.clone(),
             ua_platform: self.ua_platform.clone(),
             ua_platform_version: self.ua_platform_version.clone(),
-            proxy_url: self.proxy_url.clone(),
+            proxy_url,
             robots_cache: Arc::new(RobotsCache::new()),
             obey_robots: self.obey_robots,
             stealth: self.stealth,

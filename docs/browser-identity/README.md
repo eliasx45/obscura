@@ -2,7 +2,7 @@
 
 Status: working investigation
 
-Updated: 2026-09-09
+Updated: 2026-09-10
 
 This is the living engineering record for browser identity, per-context state
 isolation, compatibility, and performance. Use ADRs for decisions that have
@@ -48,19 +48,24 @@ CDP, and child realms wherever those surfaces are exposed.
 - The direct realm probe showed coherent timezone and `Function.toString`
   behavior across the main page, iframe, and worker when the process input was
   fixed.
-- A deterministic regression test now verifies that two browser contexts do
-  not share cookies or document state.
-- The offline obstacle course currently reports 32/33. The remaining
-  `observer-intersection` failure is a fixture/semantics mismatch: one
-  zero-area sentinel loads 10 items, then stays intersecting without a
-  threshold transition, while the fixture expects four more callbacks.
+- Each live CDP page now keeps one resident V8 runtime. A connection-level V8
+  lock serializes access, so switching sessions does not suspend and rebuild a
+  page or discard closures, listeners, workers, or pending async work.
+- BrowserContext proxy routing is covered with one local proxy fixture per
+  context. An explicit Playwright `proxyBypassList` is rejected because it is
+  not implemented; an omitted proxy inherits the process default.
+- The host-screen emulation failures were caused by read-only snapshot-backed
+  bootstrap slots. Screen overrides now use private mutable state, and the
+  focused emulation tests pass 10/10.
 - The private-CA regression is fixed: serial release coverage for
-  `obscura-net` passes 94/94 after removing the process-wide cached root-store
-  decision. The broad serial `cargo test --release --features render` fallback
-  still reports two host-screen emulation assertions, three child-frame
-  lifecycle assertions, and one MCP fixture connection failure in the broad
-  run. The emulation and child-frame files are outside this change; the MCP
-  target passes 18/18 when run standalone with one test thread.
+  `obscura-net` passes 94/94. The broad serial fallback has exactly three
+  child-frame lifecycle failures. The same three tests and assertions reproduce
+  on merge-base `main` commit `727cc46`, so they are baseline failures rather
+  than regressions from this identity/isolation work. The MCP target passes
+  18/18 standalone and in the completed broad run.
+- The offline obstacle course passes 33/33 after correcting its
+  `observer-intersection` fixture to model real false-to-true crossings caused
+  by scrolling. The engine was not changed to manufacture repeated callbacks.
 - CreepJS and BrowserScan runs in the current investigation are diagnostic
   controls only. Their page errors, blank widgets, and blocked third-party
   requests are not acceptance criteria or proof of a detector improvement.
@@ -117,32 +122,36 @@ The context-isolation tests assert that:
 - proxy and request callbacks stay attached to the owning context;
 - a navigation or document replacement does not retain another context's DOM,
   realm, observer, or storage state;
-- workers and iframes share their page's identity but not another page's state.
+- workers and iframes share their page's identity but not another page's state;
+- later context creation and disposal do not make earlier live pages
+  unevaluable or replace their runtimes;
+- each context keeps its own Playwright proxy route and request headers after
+  other contexts are created or disposed.
 
 ### 3. Deterministic benchmark
 
 `benchmarks/context-isolation.py` runs the same release binary against one local
-HTML fixture at 1, 5, 10, and 20 contexts. It records creation, navigation,
-state/worker/header checks, teardown, and RSS. The 2026-09-09 run used three
+HTML fixture at 1, 5, 10, and 20 contexts. It records navigation, state,
+worker/header/proxy checks, teardown, and RSS. The 2026-09-10 run used three
 repetitions, a fixed 1280x720 viewport, the `render,stealth` release binary,
-SHA-256 `fb69c1e6d324935be272ae973b837785f3f3a15bd1b772b082b75162d4242db8`,
-and passed every immediate write/worker/header check. Its post-batch state
-re-read is intentionally stricter: it checks that earlier contexts remain
-usable and retain their own state after later contexts are created.
+and SHA-256
+`12f2276d4db865bc899f647a6423157d37a3c9115749308c6a56627e3298f1c1`.
+Its post-batch state re-read is intentionally strict: it checks that earlier
+contexts remain usable and retain their own state after later contexts are
+created and disposed.
 
-| Contexts | Navigation p50/p95 ms | State write/worker p50/p95 ms | Teardown ms | Peak RSS MB | After teardown MB | Post-batch failures |
+| Contexts | Navigation p50/p95 ms | State write/worker p50/p95 ms | Teardown ms | Peak RSS MB | After teardown MB | Failures |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 | 7.021 / 7.021 | 6.490 / 6.490 | 1.894 | 33.719 | 30.031 | 0 |
-| 5 | 7.429 / 7.810 | 6.700 / 7.094 | 8.994 | 33.766 | 30.078 | 15 |
-| 10 | 7.135 / 8.010 | 6.377 / 6.943 | 15.755 | 33.859 | 30.172 | 30 |
-| 20 | 7.643 / 8.887 | 6.716 / 7.407 | 33.481 | 33.906 | 30.219 | 60 |
+| 1 | 9.030 / 9.030 | 6.761 / 6.761 | 3.711 | 53.016 | 49.344 | 0 |
+| 5 | 7.850 / 8.296 | 7.035 / 7.739 | 13.763 | 66.812 | 50.422 | 0 |
+| 10 | 8.131 / 9.426 | 6.966 / 8.444 | 22.192 | 85.703 | 53.453 | 0 |
+| 20 | 7.936 / 9.556 | 6.844 / 8.052 | 45.888 | 118.859 | 54.922 | 0 |
 
-The benchmark shows modest memory and teardown growth, but it does not pass
-the active multi-context gate: with 5+ live contexts, later evaluation reports
-`Cannot read properties of undefined (reading 'evaluate')` until navigation
-recreates the page realm. This is a lifecycle limitation, so the run proves no
-state-leakage guarantee for 5+ contexts. It does not establish long-lived
-account behavior or detector performance.
+All state, proxy, and live-page reachability checks passed at every level. RSS
+and teardown grow with the number of live contexts, while post-teardown RSS
+returns toward the process baseline. This is deterministic local evidence for
+the current lifecycle and isolation contract, not evidence about live-site
+detectors or long-lived account behavior.
 
 ### 4. Use external sites only as diagnostic controls
 
@@ -161,10 +170,10 @@ no unsolicited actions, and no detector-page instrumentation.
 | Identity contract fixture | Main, iframe, worker, HTTP, and CDP agreement | One Windows Chrome 149 identity, or a clear unsupported error |
 | Context isolation fixture | Cookies, storage, DOM, workers, callbacks | No cross-context leakage |
 | Same-build font/render fixture | Shared immutable renderer behavior | Stable metrics under identical inputs |
-| Obstacle course | Broad offline capability regression | 33/33; track `observer-intersection` separately until fixed |
+| Obstacle course | Broad offline capability regression | 33/33 |
 | Release configuration builds | Render, stealth, no-render, no-render stealth | All supported configurations build |
-| Focused nextest | Changed crates and identity/isolation tests | Pending: `cargo-nextest` unavailable in this environment |
-| Bounded multi-context benchmark | Lightweight concurrency and lifecycle | 1-context pass; 5+ contexts currently expose a live-page lifecycle failure |
+| Focused nextest | Changed crates and identity/isolation tests | Not run: locked install timed out reaching crates.io |
+| Bounded multi-context benchmark | Lightweight concurrency and lifecycle | 1/5/10/20 pass with zero state, proxy, and reachability failures |
 | CreepJS / BrowserScan | Diagnostic surface inspection | Row-level evidence only, never headline-only acceptance |
 
 ## Evidence record
@@ -199,5 +208,5 @@ link only to sanitized, durable evidence when it is actually needed.
    network configuration. This is separate from keeping each session coherent.
 2. Should a future custom-UA API also update client hints and platform, or
    remain an explicit low-level override with the current warning?
-3. Should `observer-intersection` be repaired as a standards-faithful fixture
-   or retained as a compatibility stage with explicit repeated-callback rules?
+3. Which additional session-varying properties, if any, should be proposed
+   after the default identity and isolation contracts remain stable?
