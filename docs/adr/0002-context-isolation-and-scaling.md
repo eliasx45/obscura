@@ -32,15 +32,15 @@ initial storage write is asserted before checking for leakage.
 The deterministic local benchmark is
 `benchmarks/context-isolation.py`. On 2026-09-10, three repetitions with a
 fixed 1280x720 fixture and the `render,stealth` binary (SHA-256
-`12f2276d4db865bc899f647a6423157d37a3c9115749308c6a56627e3298f1c1`)
+`0ccf690bb0a14d1002dc3ba1b3812605e05076d8bb8f55db15c88863aa1b2618`)
 passed the immediate and post-batch checks for every level:
 
 | Contexts | Navigation p50/p95 ms | State write/worker p50/p95 ms | Teardown ms | Peak RSS MB | After teardown MB | Failures |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 | 9.093 / 9.093 | 6.709 / 6.709 | 3.562 | 54.000 | 50.328 | 0 |
-| 5 | 7.606 / 8.918 | 6.743 / 7.062 | 12.989 | 67.250 | 50.859 | 0 |
-| 10 | 8.044 / 8.789 | 6.540 / 7.166 | 23.190 | 85.406 | 53.156 | 0 |
-| 20 | 7.898 / 8.369 | 6.593 / 7.504 | 46.485 | 120.297 | 56.359 | 0 |
+| 1 | 7.847 / 7.847 | 6.492 / 6.492 | 2.079 | 55.750 | 52.078 | 0 |
+| 5 | 7.245 / 8.490 | 6.707 / 7.143 | 10.652 | 69.250 | 52.859 | 0 |
+| 10 | 7.181 / 7.869 | 6.540 / 6.946 | 19.141 | 87.656 | 55.406 | 0 |
+| 20 | 7.313 / 8.401 | 6.661 / 7.182 | 45.481 | 121.812 | 57.953 | 0 |
 
 Every state, proxy, and page-reachability check passed. These numbers describe
 one local fixture and are not evidence about live-site detectors or long-lived
