@@ -72,6 +72,12 @@ branch. The full `obscura-cdp` render package passes 206/206 with 3 skipped,
 including the contract test. This confirms the client workflow without making
 session-varying identity part of the isolation decision.
 
+The Clianta audit shows that its current Browser Use-style layer leases an
+existing profile session and sends a bounded CDP command set through its own
+gateway. It does not require Browser Use Cloud fingerprint variation or a new
+Obscura profile pool. Future changes should therefore target observed protocol,
+context-lifecycle, or isolation gaps only.
+
 The latest workspace-wide revalidation on 2026-09-12 is not a merge-gate pass:
 bounded render nextest reported 1,710/1,711 and render-plus-stealth reported
 1,719/1,722. The failures are two upstream render-resource/font fixtures,

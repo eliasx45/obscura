@@ -103,3 +103,11 @@ and viewport. It does not by itself establish a requirement for randomized
 fingerprints. Validate the CDP workflow and Clianta's actual needs first; do
 not introduce session-varying identity as a substitute for isolation or as an
 assumption imported from the client library.
+
+The current Clianta integration is not Browser Use Cloud's browser runtime.
+`@clianta/browser-use` is a policy and session layer: it leases an existing
+Clianta Browser Profile session and sends a deliberately bounded CDP operation
+set through `BrowserGateway`. Therefore an Obscura change must be justified by
+an observed CDP, context-lifecycle, or network-isolation requirement from that
+adapter. Browser Use Cloud claims about hosted profiles, fingerprint
+variation, or fleet behavior are not implementation requirements for Obscura.

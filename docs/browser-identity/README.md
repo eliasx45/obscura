@@ -126,6 +126,15 @@ before deciding whether any identity properties should differ between
 contexts. Do not cherry-pick or implement variation merely because Browser Use
 supports configurable session settings.
 
+The corresponding Clianta code confirms that boundary: its current
+`@clianta/browser-use` package calls `browserOperations.execute` on an existing
+profile lease and routes the request through a narrow `BrowserGateway` CDP
+allowlist. It is not a direct Browser Use Cloud client or a request for a new
+Obscura fingerprint pool. The package's local unit suite passed 47 tests with 6
+opt-in tests skipped on 2026-09-12; its TypeScript check currently reports an
+unrelated stale localhost fixture type (`SessionLaunchResult`), so this is
+adapter evidence, not a clean Clianta release gate.
+
 ## Target contract
 
 For the current product direction, use one explicit default identity:
