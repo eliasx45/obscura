@@ -111,3 +111,11 @@ set through `BrowserGateway`. Therefore an Obscura change must be justified by
 an observed CDP, context-lifecycle, or network-isolation requirement from that
 adapter. Browser Use Cloud claims about hosted profiles, fingerprint
 variation, or fleet behavior are not implementation requirements for Obscura.
+
+Do not confuse that adapter boundary with Clianta's existing Veil launcher.
+The launcher currently binds a connected profile to persistent user-data,
+proxy-route, and stored `fingerprint_json` inputs, then verifies runtime UA and
+platform signals against the stored profile. If Obscura is ever made a Veil
+backend, profile-bound identity support will need its own explicit design and
+coherence tests. Browser Use's configurable session fields do not settle that
+design, and they are not permission to add a random identity pool.

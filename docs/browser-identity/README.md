@@ -135,6 +135,15 @@ opt-in tests skipped on 2026-09-12; its TypeScript check currently reports an
 unrelated stale localhost fixture type (`SessionLaunchResult`), so this is
 adapter evidence, not a clean Clianta release gate.
 
+There is a separate integration consideration in Clianta's existing Veil
+launcher. It binds each Browser Profile to persistent user-data, a proxy route,
+and stored `fingerprint_json`, then checks the launched runtime's User-Agent,
+`navigator.platform`, and UA client-hint platform against that profile. This is
+profile-bound identity owned by Clianta, not Browser Use's open-source session
+configuration. Whether Obscura must consume that profile-bound identity is still
+an integration decision; it is not evidence for adding session variation to the
+current built-in preset.
+
 ## Target contract
 
 For the current product direction, use one explicit default identity:
