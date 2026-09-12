@@ -392,7 +392,8 @@ engine; enabling stealth does not remove screenshot, screencast, PDF, CDP, or
 MCP functionality.
 
 ### Anti-fingerprinting
-- Per-session fingerprint randomization (GPU, screen, canvas, audio, battery)
+- One coherent built-in Windows Chrome 149 identity; session-varying identity
+  properties remain an open design question and are not randomized by default
 - Realistic `navigator.userAgentData` (Chrome 149, high-entropy values)
 - `event.isTrusted = true` for dispatched events
 - Hidden internal properties (`Object.keys(window)` safe)

@@ -29,8 +29,9 @@ CDP, and child realms wherever those surfaces are exposed.
 
 ## Current confirmed state
 
-- The current branch is `elias/chrome149-profile`; see git history for the
-  latest identity and isolation commits.
+- The current implementation is on the fork's main line and its follow-up
+  integration branches; see git history for the latest identity and isolation
+  commits.
 - The renderer uses embedded Liberation, DejaVu, and Noto font assets and does
   not scan host system fonts. Common font metrics are therefore shared by
   instances using the same build. Page-provided web fonts remain page inputs.
@@ -65,8 +66,9 @@ CDP, and child realms wherever those surfaces are exposed.
   child-frame file passes 11/11 with both serialized and default-thread
   fallback execution. The MCP target passes 18/18 standalone and in the
   completed broad run.
-- `cargo-nextest` is installed and authoritative release coverage is green:
-  the full `render` run passes 1,658/1,658 with 4 skipped; the full
+- `cargo-nextest` is installed. Historical authoritative release coverage
+  before the upstream rebase was green: the full `render` run passed
+  1,658/1,658 with 4 skipped; the full
   `render,stealth` run passes 1,668/1,668 with 4 skipped when bounded to two
   jobs. An unbounded stealth run showed intermittent loopback-fixture failures
   in MCP and screenshot-resource tests; the affected targets pass alone and
@@ -75,12 +77,54 @@ CDP, and child realms wherever those surfaces are exposed.
   rather than as an implementation failure. Two subsequent unbounded reruns on
   this commit passed 1,668/1,668, so the issue was not reproduced in final
   verification.
+- Latest revalidation on 2026-09-12 is not a merge-gate pass on the rebased
+  fork tip: bounded `render` coverage was 1,710/1,711 with four local
+  render-resource fixture failures across the rerun, and bounded
+  `render,stealth` coverage was 1,719/1,722 with the two font/resource
+  failures plus one `obscura-js` rendering-phase test. The phase-order test
+  passes alone. The two font tests fail alone on this host, while other related
+  fixtures pass; they were introduced with upstream render-transport commit
+  `97ff86db` and are outside the Browser Use/identity diff. This remains an
+  unresolved gate, not a “pre-existing” dismissal.
 - The offline obstacle course passes 33/33 after correcting its
   `observer-intersection` fixture to model real false-to-true crossings caused
   by scrolling. The engine was not changed to manufacture repeated callbacks.
 - CreepJS and BrowserScan runs in the current investigation are diagnostic
   controls only. Their page errors, blank widgets, and blocked third-party
   requests are not acceptance criteria or proof of a detector improvement.
+
+### Browser Use compatibility audit
+
+The official Browser Use client treats a browser profile primarily as a
+state-and-configuration boundary. Its session/profile APIs expose persistent
+or incognito storage, cookies and local storage state, proxy settings, request
+headers, User-Agent, viewport, and profile paths. Parallel sessions require
+separate profile or storage paths; the documentation does not make random
+fingerprint variation a prerequisite for a usable session.
+
+Sources reviewed on 2026-09-12:
+
+- [BrowserSession](https://github.com/browser-use/browser-use/blob/main/browser_use/browser/session.py)
+- [BrowserProfile](https://github.com/browser-use/browser-use/blob/main/browser_use/browser/profile.py)
+- [Browser Use browser reference](https://github.com/browser-use/browser-use/blob/main/skills/open-source/references/browser.md)
+
+The Obscura-side contract currently exercised for that workflow is:
+
+- create and attach to a target, then receive post-navigation
+  `Target.targetInfoChanged` metadata;
+- use `DOM.getDocument` and `DOMSnapshot.captureSnapshot` to build an element
+  index correlated by node identifiers;
+- focus an element with `DOM.focus`, type with `Input.insertText`, and verify
+  the result through `Runtime.evaluate`;
+- keep storage, proxy, headers, and live page runtimes owned by the relevant
+  BrowserContext.
+
+`crates/obscura-cdp/tests/browser_use_contract.rs` covers the first three
+steps with a deterministic local fixture. This audit does not define
+session-varying identity. Clianta-specific requirements must be gathered
+before deciding whether any identity properties should differ between
+contexts. Do not cherry-pick or implement variation merely because Browser Use
+supports configurable session settings.
 
 ## Target contract
 
@@ -165,6 +209,20 @@ returns toward the process baseline. This is deterministic local evidence for
 the current lifecycle and isolation contract, not evidence about live-site
 detectors or long-lived account behavior.
 
+Fresh validation on 2026-09-12 used the current fork branch, the exact
+`render,stealth` release build, and three repetitions. The binary SHA-256 was
+`be9af430442f851b84f7826f313fcdd199a399b101cf9fbbebbeee44585d2b45`.
+
+| Contexts | Navigation p50/p95 ms | State write/worker p50/p95 ms | Teardown ms | Peak RSS MB | Failures |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 13.7 / 13.7 | 7.0 / 7.0 | 2.3 | 53.2 | 0 |
+| 5 | 7.8 / 8.4 | 6.3 / 7.9 | 10.6 | 66.6 | 0 |
+| 10 | 7.7 / 8.4 | 6.4 / 6.8 | 19.7 | 84.7 | 0 |
+| 20 | 7.4 / 8.3 | 6.4 / 6.7 | 35.2 | 118.4 | 0 |
+
+This rerun also passed the strict post-batch re-read and teardown checks at
+every level.
+
 ### 4. Use external sites only as diagnostic controls
 
 External-site runs are diagnostic controls. Every run records the binary hash,
@@ -185,8 +243,9 @@ no unsolicited actions, and no detector-page instrumentation.
 | Obstacle course | Broad offline capability regression | 33/33 |
 | Release configuration builds | Render, stealth, no-render, no-render stealth | All supported configurations build |
 | Focused nextest | Changed crates and identity/isolation tests | Pass: child frames 11/11, CDP ownership 7/7, identity/isolation 2/2, stealth transport 1/1, gzip transport 1/1 |
-| Full release nextest | Complete render suite | Pass: 1,658/1,658, 4 skipped |
-| Full release nextest with stealth | Complete render + stealth suite | Pass with `-j 2`: 1,668/1,668, 4 skipped; unbounded run had intermittent local-fixture timing failures whose exact root cause is not isolated |
+| Browser Use CDP contract | Target discovery, navigation metadata, DOM snapshot, focus, input, evaluation | 1/1 local deterministic fixture |
+| Full release nextest | Complete render suite | Historical 1,658/1,658 pass; latest rebased-tip run was 1,710/1,711 with render-resource failures |
+| Full release nextest with stealth | Complete render + stealth suite | Historical 1,668/1,668 pass; latest rebased-tip run was 1,719/1,722 with two font/resource failures and one phase-order failure |
 | Bounded multi-context benchmark | Lightweight concurrency and lifecycle | 1/5/10/20 pass with zero state, proxy, and reachability failures |
 | CreepJS / BrowserScan | Diagnostic surface inspection | Row-level evidence only, never headline-only acceptance |
 

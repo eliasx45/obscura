@@ -94,3 +94,12 @@ inputs, and whether the result came from a clean merge-base. A passing focused
 test does not prove a broad suite passes, and a broad fallback failure does not
 prove a product regression. Keep implementation failures, fixture failures,
 runner limitations, and infrastructure failures as separate categories.
+
+## Browser Use compatibility is a session/CDP contract
+
+Browser Use's profile model is primarily about persistent or isolated state
+and configurable session settings such as storage, proxy, headers, User-Agent,
+and viewport. It does not by itself establish a requirement for randomized
+fingerprints. Validate the CDP workflow and Clianta's actual needs first; do
+not introduce session-varying identity as a substitute for isolation or as an
+assumption imported from the client library.
