@@ -33,6 +33,8 @@ pub enum PublicTaskError {
     ContentNotFound,
     #[error("public task screenshot is unavailable in this build")]
     ScreenshotUnavailable,
+    #[error("public task storage directory must be an available absolute path")]
+    StorageUnavailable,
     #[error("public task navigation failed: {0}")]
     Navigation(String),
 }
@@ -55,7 +57,7 @@ impl PublicTaskPolicy {
 
     /// The non-HTTPS option exists for deterministic local engine fixtures.
     /// Public production sessions should use [`Self::new`].
-    pub fn with_https_only(
+    pub(crate) fn with_https_only(
         allowed_domains: impl IntoIterator<Item = impl AsRef<str>>,
         https_only: bool,
     ) -> Result<Self, PublicTaskError> {
@@ -205,6 +207,11 @@ pub struct PublicTaskObservation {
 }
 
 /// One isolated Obscura-backed public-task session.
+///
+/// `storage_dir` is Obscura-native persistence: this context currently stores
+/// cookies in `cookies.json`. It is not a Chrome/Veil user-data directory;
+/// document storage and JavaScript state live only in this session's page
+/// runtime. Reuse a directory only when cookie continuity is intended.
 pub struct PublicTaskSession {
     context: Arc<BrowserContext>,
     page: Page,
@@ -216,25 +223,34 @@ impl PublicTaskSession {
         id: impl Into<String>,
         storage_dir: impl Into<std::path::PathBuf>,
         policy: PublicTaskPolicy,
-    ) -> Self {
-        let context = Arc::new(BrowserContext::with_storage(
-            id.into(),
-            Some(storage_dir.into()),
-        ));
+    ) -> Result<Self, PublicTaskError> {
+        let storage_dir = storage_dir.into();
+        if !storage_dir.is_absolute() || std::fs::create_dir_all(&storage_dir).is_err() {
+            return Err(PublicTaskError::StorageUnavailable);
+        }
+        let mut context = BrowserContext::with_storage(id.into(), Some(storage_dir));
+        Arc::get_mut(&mut context.http_client)
+            .expect("new public task context owns its HTTP client")
+            .enforce_public_network_policy();
+        let context = Arc::new(context);
         let interceptor = PublicTaskRequestInterceptor {
             policy: policy.clone(),
         };
-        if let Ok(mut guard) = context.http_client.interceptor.try_write() {
-            *guard = Some(Box::new(interceptor));
-        }
+        *context
+            .http_client
+            .interceptor
+            .try_write()
+            .expect("new public task context has an uncontended interceptor lock") =
+            Some(Box::new(interceptor));
         let mut page = Page::new("public-task-page".into(), context.clone());
         page.set_navigation_timeout(DEFAULT_NAVIGATION_TIMEOUT);
+        page.set_public_task_policy(policy.clone());
         page.navigate_blank();
-        Self {
+        Ok(Self {
             context,
             page,
             policy,
-        }
+        })
     }
 
     pub async fn open(
@@ -244,7 +260,7 @@ impl PublicTaskSession {
         allowed_domains: &[String],
     ) -> Result<Self, PublicTaskError> {
         let policy = PublicTaskPolicy::from_scope(start_url, allowed_domains)?;
-        let mut session = Self::new(id, storage_dir, policy);
+        let mut session = Self::new(id, storage_dir, policy)?;
         if let Some(start_url) = start_url {
             session.navigate(start_url).await?;
         }
@@ -289,11 +305,11 @@ impl PublicTaskSession {
     }
 
     /// Read text from a CSS selector. The selector is data, not JavaScript:
-    /// it is escaped before being passed to the page's internal DOM helper.
+    /// JSON string encoding keeps it data in the page's internal DOM helper.
     pub fn extract_text(&mut self, selector: &str) -> Result<String, PublicTaskError> {
-        let selector = selector.replace('\\', "\\\\").replace('\'', "\\'");
+        let selector = serde_json::to_string(selector).expect("strings always serialize to JSON");
         let value = self.page.evaluate(&format!(
-            "(function() {{ var el = document.querySelector('{}'); return el ? el.textContent : null; }})()",
+            "(function() {{ var el = document.querySelector({}); return el ? el.textContent : null; }})()",
             selector
         ));
         value
@@ -324,6 +340,66 @@ impl Drop for PublicTaskSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use obscura_net::{interceptor::InterceptAction, ResourceType, Response};
+    use std::collections::HashMap;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    const FIXTURE_HTML: &str = concat!(
+        "<!doctype html><html><head><title>Fixture Research</title></head>",
+        "<body><main><p data-label=\"a'b\">First paragraph.</p></main></body></html>"
+    );
+    const ESCAPE_HTML: &str = concat!(
+        "<!doctype html><html><body><script>",
+        "location.href = 'data:text/html,escaped'",
+        "</script></body></html>"
+    );
+
+    struct TempStorage(std::path::PathBuf);
+
+    impl TempStorage {
+        fn new() -> Self {
+            let nonce = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let path = std::env::temp_dir().join(format!(
+                "obscura-public-task-{}-{nonce}",
+                std::process::id()
+            ));
+            std::fs::create_dir_all(&path).unwrap();
+            Self(path)
+        }
+    }
+
+    impl Drop for TempStorage {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    struct FixtureInterceptor {
+        policy: PublicTaskPolicy,
+        body: Vec<u8>,
+    }
+
+    #[async_trait]
+    impl RequestInterceptor for FixtureInterceptor {
+        async fn intercept(&self, request: &RequestInfo) -> InterceptAction {
+            if self.policy.validate(request.url.as_str()).is_err() {
+                return InterceptAction::Block;
+            }
+            InterceptAction::Fulfill(Response {
+                url: request.url.clone(),
+                status: 200,
+                headers: HashMap::from([(
+                    "content-type".into(),
+                    "text/html; charset=utf-8".into(),
+                )]),
+                body: self.body.clone(),
+                redirected_from: Vec::new(),
+            })
+        }
+    }
 
     #[test]
     fn derives_scope_from_start_url() {
@@ -344,7 +420,9 @@ mod tests {
             "https://user:pass@example.com",
             "https://example.com:8443",
             "https://localhost",
+            "https://sub.localhost",
             "https://127.0.0.1",
+            "https://[::1]",
             "https://metadata.google.internal",
             "https://other.example.test",
         ] {
@@ -360,19 +438,134 @@ mod tests {
         );
     }
 
-    #[test]
-    fn session_starts_on_a_clean_blank_page() {
-        let dir = std::env::temp_dir().join(format!(
-            "obscura-public-task-test-{}",
-            std::process::id()
-        ));
-        let mut session = PublicTaskSession::new(
+    #[tokio::test(flavor = "current_thread")]
+    async fn session_starts_on_a_clean_blank_page() {
+        let storage = TempStorage::new();
+        let mut session = PublicTaskSession::open(
             "test-public-task",
-            &dir,
-            PublicTaskPolicy::new(["example.com"]).unwrap(),
-        );
+            storage.0.join("session"),
+            None,
+            &["example.com".to_string()],
+        )
+        .await
+        .unwrap();
         let observation = session.observe();
         assert_eq!(observation.url, "about:blank");
         assert!(observation.text.is_empty());
+    }
+
+    #[test]
+    fn requires_an_absolute_storage_directory() {
+        assert_eq!(
+            PublicTaskSession::new(
+                "relative-storage",
+                "relative-public-task-storage",
+                PublicTaskPolicy::new(["example.com"]).unwrap(),
+            )
+            .err()
+            .unwrap(),
+            PublicTaskError::StorageUnavailable
+        );
+    }
+
+    #[test]
+    fn storage_isolated_by_directory_and_cookies_reopen() {
+        let storage = TempStorage::new();
+        let policy = PublicTaskPolicy::new(["example.com"]).unwrap();
+        let origin = Url::parse("https://example.com/").unwrap();
+        let storage_a = storage.0.join("a");
+        let storage_b = storage.0.join("b");
+        {
+            let session_a = PublicTaskSession::new("a", &storage_a, policy.clone()).unwrap();
+            let session_b = PublicTaskSession::new("b", &storage_b, policy.clone()).unwrap();
+            session_a.context.cookie_jar.set_cookie("sid=a", &origin);
+            session_b.context.cookie_jar.set_cookie("sid=b", &origin);
+        }
+
+        let reopened_a = PublicTaskSession::new("a-reopened", &storage_a, policy.clone()).unwrap();
+        let reopened_b = PublicTaskSession::new("b-reopened", &storage_b, policy).unwrap();
+        assert_eq!(reopened_a.context.cookie_jar.get_cookie_header(&origin), "sid=a");
+        assert_eq!(reopened_b.context.cookie_jar.get_cookie_header(&origin), "sid=b");
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn deterministic_fixture_proves_navigation_observation_extraction_and_screenshot() {
+        let storage = TempStorage::new();
+        let policy = PublicTaskPolicy::new(["example.com"]).unwrap();
+        let mut session = PublicTaskSession::new(
+            "fixture-public-task",
+            storage.0.join("session"),
+            policy.clone(),
+        )
+        .unwrap();
+        *session.context.http_client.interceptor.write().await = Some(Box::new(
+            FixtureInterceptor {
+                policy,
+                body: FIXTURE_HTML.as_bytes().to_vec(),
+            },
+        ));
+
+        session.navigate("https://example.com/").await.unwrap();
+        let observation = session.observe();
+        assert_eq!(observation.url, "https://example.com/");
+        assert_eq!(observation.title, "Fixture Research");
+        assert!(observation.text.contains("First paragraph."));
+        assert_eq!(
+            session.extract_text("p[data-label=\"a'b\"]").unwrap(),
+            "First paragraph."
+        );
+        assert_eq!(
+            session.extract_text("p'); globalThis.__injected = true; //").unwrap_err(),
+            PublicTaskError::ContentNotFound
+        );
+        assert_eq!(session.page.evaluate("globalThis.__injected || false"), false);
+
+        #[cfg(feature = "render")]
+        {
+            let screenshot = session.screenshot().await.unwrap();
+            assert!(screenshot.starts_with(b"\x89PNG\r\n\x1a\n"));
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn request_interceptor_blocks_out_of_scope_resource_targets() {
+        let interceptor = PublicTaskRequestInterceptor {
+            policy: PublicTaskPolicy::new(["example.com"]).unwrap(),
+        };
+        for resource_type in [ResourceType::Document, ResourceType::Fetch, ResourceType::Script] {
+            let request = RequestInfo {
+                url: Url::parse("https://outside.test/resource").unwrap(),
+                method: "GET".into(),
+                headers: HashMap::new(),
+                resource_type,
+            };
+            assert!(matches!(
+                interceptor.intercept(&request).await,
+                InterceptAction::Block
+            ));
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn page_script_cannot_navigate_to_an_unscoped_local_url() {
+        let storage = TempStorage::new();
+        let policy = PublicTaskPolicy::new(["example.com"]).unwrap();
+        let mut session = PublicTaskSession::new(
+            "navigation-scope",
+            storage.0.join("session"),
+            policy.clone(),
+        )
+        .unwrap();
+        *session.context.http_client.interceptor.write().await = Some(Box::new(
+            FixtureInterceptor {
+                policy,
+                body: ESCAPE_HTML.as_bytes().to_vec(),
+            },
+        ));
+
+        assert_eq!(
+            session.navigate("https://example.com/").await.unwrap_err(),
+            PublicTaskError::RequestBlocked
+        );
     }
 }

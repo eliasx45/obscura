@@ -694,17 +694,29 @@ pub fn is_forbidden_ip(ip: IpAddr) -> bool {
 /// guard away for a better TLS fingerprint.
 pub struct SsrfGuardResolver {
     pub(crate) allow_private: bool,
+    pub(crate) respect_environment: bool,
 }
 
 impl SsrfGuardResolver {
     pub fn new(allow_private: bool) -> Self {
-        Self { allow_private }
+        Self::with_environment_policy(allow_private, true)
+    }
+
+    pub(crate) fn with_environment_policy(
+        allow_private: bool,
+        respect_environment: bool,
+    ) -> Self {
+        Self {
+            allow_private,
+            respect_environment,
+        }
     }
 }
 
 impl Resolve for SsrfGuardResolver {
     fn resolve(&self, name: Name) -> Resolving {
-        let allow = self.allow_private || env_allows_private_network();
+        let allow = self.allow_private
+            || (self.respect_environment && env_allows_private_network());
         let host = name.as_str().to_string();
         Box::pin(async move {
             let addrs: Vec<SocketAddr> = tokio::net::lookup_host((host.as_str(), 0))
@@ -728,7 +740,16 @@ impl Resolve for SsrfGuardResolver {
 }
 
 pub(crate) fn validate_url(url: &Url, allow_private_network: bool) -> Result<(), ObscuraNetError> {
-    let allow_private_network = allow_private_network || env_allows_private_network();
+    validate_url_with_environment(url, allow_private_network, true)
+}
+
+fn validate_url_with_environment(
+    url: &Url,
+    allow_private_network: bool,
+    respect_environment: bool,
+) -> Result<(), ObscuraNetError> {
+    let allow_private_network = allow_private_network
+        || (respect_environment && env_allows_private_network());
     let scheme = url.scheme();
     if scheme != "http" && scheme != "https" && scheme != "file" {
         return Err(ObscuraNetError::Network(format!(
@@ -932,6 +953,7 @@ pub struct ObscuraHttpClient {
     /// through in addition to the `OBSCURA_ALLOW_PRIVATE_NETWORK` env var.
     /// Set via `--allow-private-network` on the CLI (issue #33).
     pub allow_private_network: bool,
+    respect_private_network_env: bool,
 }
 
 const RESOURCE_CACHE_MAX_ENTRIES: usize = 256;
@@ -1143,6 +1165,22 @@ impl ObscuraHttpClient {
             block_trackers: false,
             resource_loader: std::sync::Mutex::new(ResourceLoaderState::default()),
             allow_private_network,
+            respect_private_network_env: true,
+        }
+    }
+
+    /// Keep public-task requests on public addresses even if the process-wide
+    /// development override is enabled. Call before the first request.
+    pub fn enforce_public_network_policy(&mut self) {
+        self.allow_private_network = false;
+        self.respect_private_network_env = false;
+    }
+
+    fn validate_network_url(&self, url: &Url) -> Result<(), ObscuraNetError> {
+        if self.respect_private_network_env {
+            validate_url(url, self.allow_private_network)
+        } else {
+            validate_url_with_environment(url, self.allow_private_network, false)
         }
     }
 
@@ -1153,7 +1191,10 @@ impl ObscuraHttpClient {
                 .timeout(self.timeout)
                 .danger_accept_invalid_certs(false)
                 // SSRF guard: reject hostnames that resolve to a private/loopback IP.
-                .dns_resolver(Arc::new(SsrfGuardResolver::new(self.allow_private_network)))
+                .dns_resolver(Arc::new(SsrfGuardResolver::with_environment_policy(
+                    self.allow_private_network,
+                    self.respect_private_network_env,
+                )))
 ;
 
             if custom_cert_store_requested(
@@ -1453,7 +1494,7 @@ impl ObscuraHttpClient {
         callbacks: Option<&CallbackRegistry>,
         request: ResourceRequest,
     ) -> Result<Response, ObscuraNetError> {
-        validate_url(url, self.allow_private_network)?;
+        self.validate_network_url(url)?;
         validate_request_mode(&request, url)?;
 
         if url.scheme() == "file" {
@@ -1679,7 +1720,7 @@ impl ObscuraHttpClient {
                     let next_url = current_url.join(location_str).map_err(|e| {
                         ObscuraNetError::Network(format!("Invalid redirect URL: {}", e))
                     })?;
-                    validate_url(&next_url, self.allow_private_network)?;
+                    self.validate_network_url(&next_url)?;
                     validate_request_mode(&request, &next_url)?;
                     redirect_tainted |=
                         redirect_taints_origin(&request, &current_url, &next_url);
@@ -1778,11 +1819,24 @@ mod ssrf_tests {
     use reqwest::dns::{Name, Resolve};
     use std::collections::HashMap;
     use std::net::IpAddr;
+    use std::ffi::OsString;
     use std::str::FromStr;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
     use url::Url;
+
+    struct EnvRestore(Option<OsString>);
+
+    impl Drop for EnvRestore {
+        fn drop(&mut self) {
+            if let Some(value) = self.0.take() {
+                std::env::set_var("OBSCURA_ALLOW_PRIVATE_NETWORK", value);
+            } else {
+                std::env::remove_var("OBSCURA_ALLOW_PRIVATE_NETWORK");
+            }
+        }
+    }
 
     fn ip(s: &str) -> IpAddr {
         IpAddr::from_str(s).unwrap()
@@ -2744,6 +2798,17 @@ mod ssrf_tests {
         let r = SsrfGuardResolver::new(false);
         let res = r.resolve(Name::from_str("localtest.me").unwrap()).await;
         assert!(res.is_err(), "localtest.me -> 127.0.0.1 must be blocked");
+    }
+
+    #[tokio::test]
+    async fn strict_resolver_ignores_private_network_environment_override() {
+        let _restore = EnvRestore(std::env::var_os("OBSCURA_ALLOW_PRIVATE_NETWORK"));
+        std::env::set_var("OBSCURA_ALLOW_PRIVATE_NETWORK", "1");
+        let resolver = SsrfGuardResolver::with_environment_policy(false, false);
+        let result = resolver.resolve(Name::from_str("localhost").unwrap()).await;
+        assert!(result
+            .err()
+            .is_some_and(|error| error.to_string().contains("SSRF blocked")));
     }
 
     #[tokio::test]

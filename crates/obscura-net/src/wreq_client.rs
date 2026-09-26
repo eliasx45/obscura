@@ -34,7 +34,8 @@ use crate::client::{
 #[cfg(feature = "stealth")]
 impl wreq::dns::Resolve for SsrfGuardResolver {
     fn resolve(&self, name: wreq::dns::Name) -> wreq::dns::Resolving {
-        let allow = self.allow_private || env_allows_private_network();
+        let allow = self.allow_private
+            || (self.respect_environment && env_allows_private_network());
         let host = name.as_str().to_string();
         Box::pin(async move {
             let addrs: Vec<std::net::SocketAddr> = tokio::net::lookup_host((host.as_str(), 0))
