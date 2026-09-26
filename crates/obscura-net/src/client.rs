@@ -1122,14 +1122,8 @@ fn chrome_client_hints(ua: &str) -> (String, String) {
         .map(|&i| format!("\"{}\";v=\"{}\"", brands[i].0, brands[i].1))
         .collect::<Vec<_>>()
         .join(", ");
-    let platform = if ua.contains("Windows NT") {
-        "\"Windows\""
-    } else if ua.contains("Macintosh") {
-        "\"macOS\""
-    } else {
-        "\"Linux\""
-    };
-    (sec_ch_ua, platform.to_string())
+    let (_, platform, _) = crate::browser_platform_for_user_agent(ua);
+    (sec_ch_ua, format!("\"{}\"", platform))
 }
 
 impl ObscuraHttpClient {

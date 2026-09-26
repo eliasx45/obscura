@@ -106,10 +106,29 @@ impl BrowserContext {
         if stealth {
             client.block_trackers = true;
         }
-        let resolved_ua = user_agent.unwrap_or_else(|| obscura_net::BROWSER_USER_AGENT.to_string());
-        let platform = obscura_net::BROWSER_NAVIGATOR_PLATFORM.to_string();
-        let ua_platform = obscura_net::BROWSER_UA_PLATFORM.to_string();
-        let ua_platform_version = obscura_net::BROWSER_UA_PLATFORM_VERSION.to_string();
+        // wreq's emulation profile is currently fixed to Chrome 149 on
+        // Windows. Do not let a caller configure a different UA while the
+        // stealth transport remains on that profile: the wire identity and
+        // page JavaScript would disagree. The ordinary transport can honor a
+        // custom UA, but derives its JS platform fields from that same UA.
+        let resolved_ua = if stealth {
+            if user_agent
+                .as_deref()
+                .is_some_and(|requested| requested != obscura_net::BROWSER_USER_AGENT)
+            {
+                tracing::warn!(
+                    "custom User-Agent ignored for stealth context; using the built-in Chrome identity"
+                );
+            }
+            obscura_net::BROWSER_USER_AGENT.to_string()
+        } else {
+            user_agent.unwrap_or_else(|| obscura_net::BROWSER_USER_AGENT.to_string())
+        };
+        let (platform, ua_platform, ua_platform_version) =
+            obscura_net::browser_platform_for_user_agent(&resolved_ua);
+        let platform = platform.to_string();
+        let ua_platform = ua_platform.to_string();
+        let ua_platform_version = ua_platform_version.to_string();
         // Sync the http client's UA at construction so navigation requests pick it
         // up before any async setup runs. The lock has no other holders here, so
         // try_write always succeeds; we fall back silently if it ever fails.
@@ -252,6 +271,35 @@ mod tests {
         let client_ua = ctx.http_client.user_agent.read().await.clone();
         assert_eq!(client_ua, obscura_net::BROWSER_USER_AGENT);
         assert_eq!(ctx.user_agent, client_ua);
+    }
+
+    #[test]
+    fn stealth_context_keeps_transport_and_page_identity_on_the_built_in_profile() {
+        let ctx = BrowserContext::with_full_options(
+            "stealth-identity".to_string(),
+            None,
+            true,
+            Some("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/123.0.0.0 Safari/537.36".to_string()),
+        );
+
+        assert_eq!(ctx.user_agent, obscura_net::BROWSER_USER_AGENT);
+        assert_eq!(ctx.platform, obscura_net::BROWSER_NAVIGATOR_PLATFORM);
+        assert_eq!(ctx.ua_platform, obscura_net::BROWSER_UA_PLATFORM);
+        assert_eq!(ctx.ua_platform_version, obscura_net::BROWSER_UA_PLATFORM_VERSION);
+    }
+
+    #[test]
+    fn ordinary_custom_user_agent_derives_matching_linux_platform() {
+        let ctx = BrowserContext::with_full_options(
+            "custom-identity".to_string(),
+            None,
+            false,
+            Some("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/123.0.0.0 Safari/537.36".to_string()),
+        );
+
+        assert_eq!(ctx.platform, "Linux x86_64");
+        assert_eq!(ctx.ua_platform, "Linux");
+        assert_eq!(ctx.user_agent, ctx.http_client.user_agent.blocking_read().as_str());
     }
 
     #[tokio::test(flavor = "current_thread")]

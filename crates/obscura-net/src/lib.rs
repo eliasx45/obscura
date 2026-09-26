@@ -13,6 +13,30 @@ pub const BROWSER_NAVIGATOR_PLATFORM: &str = "Win32";
 pub const BROWSER_UA_PLATFORM: &str = "Windows";
 pub const BROWSER_UA_PLATFORM_VERSION: &str = "15.0.0";
 
+/// Return the JavaScript platform identity that belongs with a User-Agent.
+///
+/// The stealth transport currently has one supported identity (Chrome 149 on
+/// Windows). Callers that use a custom UA on the ordinary transport still
+/// need navigator.platform and userAgentData.platform to describe the same
+/// OS family as the request headers.
+pub fn browser_platform_for_user_agent(ua: &str) -> (&'static str, &'static str, &'static str) {
+    if ua.contains("Windows NT") {
+        (BROWSER_NAVIGATOR_PLATFORM, BROWSER_UA_PLATFORM, BROWSER_UA_PLATFORM_VERSION)
+    } else if ua.contains("iPhone") || ua.contains("iPad") {
+        ("iPhone", "iOS", "0.0.0")
+    } else if ua.contains("Android") {
+        ("Linux armv8l", "Android", "0.0.0")
+    } else if ua.contains("Macintosh") {
+        ("MacIntel", "macOS", "10.15.7")
+    } else if ua.contains("Linux") {
+        ("Linux x86_64", "Linux", "0.0.0")
+    } else {
+        // Unknown UA strings retain the existing browser defaults rather than
+        // inventing a platform identity that may be less coherent.
+        (BROWSER_NAVIGATOR_PLATFORM, BROWSER_UA_PLATFORM, BROWSER_UA_PLATFORM_VERSION)
+    }
+}
+
 #[cfg(feature = "stealth")]
 pub mod wreq_client;
 
