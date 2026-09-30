@@ -2,6 +2,7 @@ pub mod context;
 mod fork_virtual_url;
 pub mod lifecycle;
 pub mod page;
+pub mod public_task;
 #[cfg(feature = "render")]
 pub mod pdf;
 
@@ -14,6 +15,7 @@ pub use obscura_js::{
     CaptureError, CaptureRegion,
 };
 pub use page::{NetworkEvent, Page, PageError};
+pub use public_task::{PublicTaskError, PublicTaskObservation, PublicTaskPolicy, PublicTaskSession};
 #[cfg(feature = "render")]
 pub use pdf::{RasterPdfError, RasterPdfOptions, RasterPdfPageRange};
 // Re-exported so the embeddable `obscura` crate (which depends on obscura-browser,

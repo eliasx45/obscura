@@ -302,6 +302,9 @@ pub struct Page {
     navigation_timeout: Option<std::time::Duration>,
     /// Optional per-page cap. Pages without a value keep the default.
     navigation_chain_limit: Option<usize>,
+    /// Public-task URL scope, checked for top-level navigations before a URL
+    /// can take a local scheme path that bypasses the HTTP request interceptor.
+    public_task_policy: Option<crate::public_task::PublicTaskPolicy>,
     /// Navigation history for Page.getNavigationHistory / navigateToHistoryEntry.
     /// Entries are URLs in visit order; `history_index` is the current position.
     /// Pushed on every successful navigation; truncated on goBack -> new nav.
@@ -1159,6 +1162,7 @@ impl Page {
             document_timeline_origin: std::time::Instant::now(),
             navigation_timeout: None,
             navigation_chain_limit: None,
+            public_task_policy: None,
             history: Vec::new(),
             history_index: 0,
             network_events: Vec::new(),
@@ -1186,6 +1190,10 @@ impl Page {
     /// not set it retain the existing environment-configurable 30s default.
     pub fn set_navigation_timeout(&mut self, timeout: std::time::Duration) {
         self.navigation_timeout = Some(timeout);
+    }
+
+    pub(crate) fn set_public_task_policy(&mut self, policy: crate::public_task::PublicTaskPolicy) {
+        self.public_task_policy = Some(policy);
     }
 
     /// Return the effective end-to-end navigation deadline for this page.
@@ -3212,6 +3220,16 @@ impl Page {
         let mut document_referrer = initial_referrer.to_string();
         let chain_limit = self.navigation_chain_limit();
         for chain in 0..chain_limit {
+            if self
+                .public_task_policy
+                .as_ref()
+                .is_some_and(|policy| policy.validate(&current_url).is_err())
+            {
+                self.lifecycle = LifecycleState::Failed;
+                return Err(PageError::NetworkError(
+                    "Request blocked by public task URL policy".into(),
+                ));
+            }
             self.navigate_single(
                 &current_url,
                 wait_until,
