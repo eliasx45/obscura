@@ -12179,9 +12179,10 @@ mod tests {
         let result = rt
             .evaluate_for_cdp(
                 r#"
-                new Promise(resolve => {
+                new Promise((resolve, reject) => {
                     const records = [];
                     const target = document.getElementById("target");
+                    const timeout = setTimeout(() => reject(new Error("Missing intersection transition")), 2000);
                     const observer = new IntersectionObserver(entries => {
                         for (const entry of entries) {
                             records.push([
@@ -12191,11 +12192,17 @@ mod tests {
                                 Math.round(entry.intersectionRect.height),
                             ]);
                         }
+                        // Advance only after each transition is delivered; wall
+                        // clock timers can coalesce scrolls on a busy runner.
+                        if (records.length === 1) window.scrollTo(0, 100);
+                        else if (records.length === 2) window.scrollTo(0, 260);
+                        else if (records.length === 3) {
+                            observer.disconnect();
+                            clearTimeout(timeout);
+                            resolve(records);
+                        }
                     }, { threshold: [0, 0.5, 1] });
                     observer.observe(target);
-                    setTimeout(() => window.scrollTo(0, 100), 25);
-                    setTimeout(() => window.scrollTo(0, 260), 50);
-                    setTimeout(() => resolve(records), 80);
                 })
                 "#,
                 true,

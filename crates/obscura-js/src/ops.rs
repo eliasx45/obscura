@@ -3746,8 +3746,19 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         tokio::spawn(async move {
-            use tokio::io::AsyncWriteExt;
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
             let (mut sock, _) = listener.accept().await.unwrap();
+            // Drain the request headers before closing the response. Closing a
+            // socket with unread input can reset an otherwise valid response.
+            tokio::time::timeout(std::time::Duration::from_secs(2), async {
+                let mut request = Vec::new();
+                while !request.ends_with(b"\r\n\r\n") {
+                    assert!(request.len() < 16 * 1024, "fixture request headers too large");
+                    request.push(sock.read_u8().await.unwrap());
+                }
+            })
+            .await
+            .expect("fixture request headers should arrive");
             let mut header = String::from("HTTP/1.1 200 OK\r\nConnection: close\r\n");
             if with_content_length {
                 header.push_str(&format!("Content-Length: {body_len}\r\n"));

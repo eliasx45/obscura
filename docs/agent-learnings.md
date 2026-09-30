@@ -33,6 +33,15 @@ coherent; it is not evidence that the browser is Windows, and it is not a
 per-context profile setting. Treat timezone as process-wide until the API and
 tests explicitly support a different scope.
 
+Native Windows currently differs from that intended CLI contract. Bundled
+V8 137's ICU host-timezone detection uses `uprv_detectWindowsTimeZone()` on
+Windows rather than its Unix `TZ` lookup. Setting the CLI's `TZ` fallback is
+therefore insufficient to pin `Intl` there; native Windows verification
+reported `Etc/GMT-1` where the obstacle course requires `Europe/Berlin`.
+Keep this portability failure visible. Do not change the host timezone,
+rewrite only the JavaScript timezone label, or relax the benchmark expectation
+to hide it. A native fix must keep `Date`, `Intl`, offsets, and DST coherent.
+
 When investigating an identity mismatch, first record the actual environment
 inputs and launch mode. Never infer a reported OS or timezone from the host
 machine alone.
@@ -88,6 +97,24 @@ or fixture timing sensitivity, not proof that the exact scheduler/socket root
 cause has been isolated.
 
 ## Evidence before claims
+
+Local TCP fixtures must set the accepted stream's I/O mode explicitly. On
+Windows, a socket accepted from a nonblocking listener can still be
+nonblocking: reading immediately can return `WouldBlock` before request bytes
+arrive. A handler written for blocking reads must call `set_nonblocking(false)`
+and set a bounded read timeout. Otherwise resource-loading tests can report
+missing responses even though the browser correctly connected and sent them.
+
+When resource loads can complete during evaluation or intermediate queue
+steps, the last drain's return value counts only the remaining work. Verify
+cumulative successful responses and an empty pending queue to assert that
+every requested resource loaded; keep the concurrency ceiling assertion.
+
+HTTP response fixtures should consume the request headers before closing the
+connection, even when they ignore their contents. Closing with unread input
+can reset a small response on Windows. Observer tests should advance to the
+next state after delivery rather than assuming several short wall-clock
+timers will run in separate rendering turns under CPU load.
 
 Record the exact commit, feature flags, runner, test filter, environment
 inputs, and whether the result came from a clean merge-base. A passing focused

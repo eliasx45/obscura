@@ -7388,6 +7388,10 @@ mod tests {
             while std::time::Instant::now() < deadline {
                 match listener.accept() {
                     Ok((mut stream, _)) => {
+                        // Windows accepts inherit the listener's nonblocking mode.
+                        // These fixture handlers need bounded blocking request reads.
+                        stream.set_nonblocking(false).unwrap();
+                        stream.set_read_timeout(Some(std::time::Duration::from_secs(2))).unwrap();
                         let mut request = [0u8; 2048];
                         let read = stream.read(&mut request).unwrap_or(0);
                         let first = String::from_utf8_lossy(&request[..read])
@@ -7476,6 +7480,10 @@ mod tests {
             while std::time::Instant::now() < deadline {
                 match listener.accept() {
                     Ok((mut stream, _)) => {
+                        // Windows accepts inherit the listener's nonblocking mode.
+                        // These fixture handlers need bounded blocking request reads.
+                        stream.set_nonblocking(false).unwrap();
+                        stream.set_read_timeout(Some(std::time::Duration::from_secs(2))).unwrap();
                         let seen_tx = seen_tx.clone();
                         std::thread::spawn(move || {
                             let mut request = [0u8; 2048];
@@ -7726,6 +7734,10 @@ mod tests {
             while std::time::Instant::now() < deadline {
                 match listener.accept() {
                     Ok((mut stream, _)) => {
+                        // Windows accepts inherit the listener's nonblocking mode.
+                        // These fixture handlers need bounded blocking request reads.
+                        stream.set_nonblocking(false).unwrap();
+                        stream.set_read_timeout(Some(std::time::Duration::from_secs(2))).unwrap();
                         let (open, peak, seen_tx) =
                             (open_thread.clone(), peak_thread.clone(), seen_tx.clone());
                         std::thread::spawn(move || {
@@ -7893,6 +7905,10 @@ mod tests {
             while std::time::Instant::now() < deadline {
                 match listener.accept() {
                     Ok((mut stream, _)) => {
+                        // Windows accepts inherit the listener's nonblocking mode.
+                        // These fixture handlers need bounded blocking request reads.
+                        stream.set_nonblocking(false).unwrap();
+                        stream.set_read_timeout(Some(std::time::Duration::from_secs(2))).unwrap();
                         let seen_tx = seen_tx.clone();
                         std::thread::spawn(move || {
                             let mut request = [0u8; 4096];
@@ -8197,8 +8213,23 @@ mod tests {
                 "group {group} must have started loads of its own"
             );
         }
-        assert_eq!(page.prepare_screenshot_resources(8_000).await, 42);
+        // Evaluation and each intermediate queue step can already apply finished
+        // loads. The final drain only counts the remaining work, so verify all
+        // successful responses across the page rather than that last batch.
+        page.prepare_screenshot_resources(8_000).await;
         assert!(!page.has_pending_render_resources());
+        assert_eq!(page.network_events.len(), 42);
+        for group in 0..3 {
+            for index in 0..14 {
+                let url = format!("http://{address}/bg{group}-{index}.svg");
+                let responses: Vec<_> = page.network_events.iter()
+                    .filter(|event| event.url == url)
+                    .collect();
+                assert_eq!(responses.len(), 1, "one completed load for {url}");
+                assert_eq!(responses[0].status, 200, "successful load for {url}");
+                assert!(responses[0].body_size > 0, "usable bytes for {url}");
+            }
+        }
         let peak = peak.load(std::sync::atomic::Ordering::SeqCst);
         assert!(
             peak <= obscura_js::ops::RENDER_RESOURCE_CONCURRENCY,
@@ -8223,6 +8254,10 @@ mod tests {
             while std::time::Instant::now() < deadline {
                 match listener.accept() {
                     Ok((mut stream, _)) => {
+                        // Windows accepts inherit the listener's nonblocking mode.
+                        // These fixture handlers need bounded blocking request reads.
+                        stream.set_nonblocking(false).unwrap();
+                        stream.set_read_timeout(Some(std::time::Duration::from_secs(2))).unwrap();
                         let index = served.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                         std::thread::spawn(move || {
                             let mut request = [0u8; 2048];
