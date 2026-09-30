@@ -67,6 +67,30 @@ focused host-screen tests pass 10/10, the MCP target passes 18/18, and
 33/33 after its fixture was corrected to model real IntersectionObserver
 crossings.
 
+The Browser Use CDP contract test passes 1/1 on the current integration
+branch. The full `obscura-cdp` render package passes 206/206 with 3 skipped,
+including the contract test. This confirms the client workflow without making
+session-varying identity part of the isolation decision.
+
+The Clianta audit shows that its current Browser Use-style layer leases an
+existing profile session and sends a bounded CDP command set through its own
+gateway. It does not require Browser Use Cloud fingerprint variation or a new
+Obscura profile pool. Future changes should therefore target observed protocol,
+context-lifecycle, or isolation gaps only.
+
+Clianta's separate Veil launcher does currently bind profiles to persistent
+user-data, proxy routes, and stored fingerprint data, with runtime UA/platform
+verification. If Obscura later becomes that launcher's backend, profile-bound
+identity support must be designed explicitly; it is not implied by Browser
+Use's session/profile API and is outside this decision.
+
+The latest workspace-wide revalidation on 2026-09-12 is not a merge-gate pass:
+bounded render nextest reported 1,710/1,711 and render-plus-stealth reported
+1,719/1,722. The failures are two upstream render-resource/font fixtures,
+plus one stealth-run rendering-phase fixture; the phase-order fixture passes
+alone. They remain explicitly unresolved rather than being called
+pre-existing.
+
 ## Consequences
 
 - Adding a new built-in identity requires wiring and testing every exposed
