@@ -33,12 +33,13 @@ coherent; it is not evidence that the browser is Windows, and it is not a
 per-context profile setting. Treat timezone as process-wide until the API and
 tests explicitly support a different scope.
 
-Native Windows currently differs from that intended CLI contract. Bundled
+Native Windows needs an explicit ICU default for that CLI contract. Bundled
 V8 137's ICU host-timezone detection uses `uprv_detectWindowsTimeZone()` on
 Windows rather than its Unix `TZ` lookup. Setting the CLI's `TZ` fallback is
-therefore insufficient to pin `Intl` there; native Windows verification
-reported `Etc/GMT-1` where the obstacle course requires `Europe/Berlin`.
-Keep this portability failure visible. Do not change the host timezone,
+therefore insufficient. After startup environment and V8 flags are configured,
+the CLI initializes bundled ICU and sets its native default before the first
+isolate. The binding uses the bundled ICU 74 ABI; verify it when upgrading V8.
+Changing the process timezone after platform startup is rejected. Do not change the host timezone,
 rewrite only the JavaScript timezone label, or relax the benchmark expectation
 to hide it. A native fix must keep `Date`, `Intl`, offsets, and DST coherent.
 

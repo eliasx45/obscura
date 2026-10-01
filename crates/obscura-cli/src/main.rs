@@ -306,7 +306,8 @@ async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
     // Pin the process timezone before V8/ICU reads it. V8 sources the zone for
-    // both Date (getTimezoneOffset, toString) and Intl.DateTimeFormat from TZ; left
+    // both Date (getTimezoneOffset, toString) and Intl.DateTimeFormat from TZ on
+    // Unix; Windows also needs the explicit ICU default set below. Left
     // unset it defaults to UTC for Date while the page layer advertised a different
     // zone, a cross-surface mismatch fingerprinting scripts flag. Default to
     // Europe/Berlin; set OBSCURA_TIMEZONE to match the exit IP's region. An existing
@@ -352,6 +353,10 @@ async fn main() -> anyhow::Result<()> {
             std::env::set_var("OBSCURA_ALLOW_PRIVATE_NETWORK", "1");
         }
     }
+
+    #[cfg(windows)]
+    obscura_js::set_process_timezone(&std::env::var("TZ")?)
+        .map_err(anyhow::Error::msg)?;
 
     let global_proxy = args.proxy.clone();
     let stealth = args.stealth;

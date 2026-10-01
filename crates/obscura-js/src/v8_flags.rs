@@ -14,6 +14,57 @@ pub(crate) fn mark_platform_started() {
     PLATFORM_STARTED.store(true, Ordering::SeqCst);
 }
 
+/// Set ICU's process timezone before any isolate exists. Windows ICU ignores
+/// TZ, so setting the environment alone cannot keep Date and Intl coherent.
+/// Call after configuring V8 flags and startup environment variables.
+#[cfg(windows)]
+pub fn set_process_timezone(zone: &str) -> Result<(), String> {
+    if zone.is_empty() || zone.contains('\0') {
+        return Err("timezone must be a nonempty IANA identifier without NUL bytes".into());
+    }
+    let mut input: Vec<u16> = zone.encode_utf16().collect();
+    let length = i32::try_from(input.len()).map_err(|_| "timezone identifier is too long")?;
+    input.push(0);
+    if PLATFORM_STARTED.swap(true, Ordering::SeqCst) {
+        return Err("timezone must be configured before the V8 platform starts".into());
+    }
+    // deno_core initializes the bundled ICU data before starting V8. No Date
+    // cache has been created yet, so both Date and Intl will use this default.
+    deno_core::JsRuntime::init_platform(None, false);
+    let mut canonical = [0u16; 512];
+    let mut is_system_id: i8 = 0;
+    let mut error: i32 = 0;
+    // SAFETY: buffers remain alive, lengths match their allocations, and the
+    // bundled rusty_v8 ICU is version 74 (the same ABI used by v8::icu).
+    let canonical_length = unsafe {
+        ucal_getCanonicalTimeZoneID_74(
+            input.as_ptr(), length, canonical.as_mut_ptr(), canonical.len() as i32,
+            &mut is_system_id, &mut error,
+        )
+    };
+    if error > 0 || is_system_id == 0 || canonical_length <= 0
+        || canonical_length as usize >= canonical.len()
+    {
+        return Err(format!("invalid IANA timezone {zone:?} (ICU error {error})"));
+    }
+    error = 0;
+    // SAFETY: ICU returned a NUL-terminated identifier into the bounded buffer.
+    unsafe { ucal_setDefaultTimeZone_74(canonical.as_ptr(), &mut error) };
+    if error > 0 {
+        return Err(format!("cannot set timezone {zone:?} (ICU error {error})"));
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+unsafe extern "C" {
+    fn ucal_getCanonicalTimeZoneID_74(
+        id: *const u16, length: i32, result: *mut u16, capacity: i32,
+        is_system_id: *mut i8, error: *mut i32,
+    ) -> i32;
+    fn ucal_setDefaultTimeZone_74(id: *const u16, error: *mut i32);
+}
+
 /// Apply user-supplied V8 flags exactly once, before the first isolate is
 /// created.
 ///
@@ -69,5 +120,12 @@ mod tests {
         let _rt = crate::runtime::ObscuraJsRuntime::new();
         set_v8_flags("--max-old-space-size=32");
         assert!(PLATFORM_STARTED.load(Ordering::SeqCst));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn timezone_change_after_runtime_creation_is_rejected() {
+        let _rt = crate::runtime::ObscuraJsRuntime::new();
+        assert!(set_process_timezone("Europe/Berlin").unwrap_err().contains("before"));
     }
 }
